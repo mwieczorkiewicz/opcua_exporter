@@ -40,7 +40,17 @@ func (h OpcValueHandler) FloatValue(v ua.Variant) (float64, error) {
 	}
 }
 
-func boolToFloat(v interface{}) (float64, error) {
+func boolToFloat(v any) (float64, error) {
+	if b, ok := v.(bool); ok {
+		if b {
+			return 1.0, nil
+		}
+		return 0.0, nil
+	}
+	return fallbackBooleans(v)
+}
+
+func fallbackBooleans(v any) (float64, error) {
 	reflectedVal := reflect.ValueOf(v)
 	reflectedVal = reflect.Indirect(reflectedVal)
 

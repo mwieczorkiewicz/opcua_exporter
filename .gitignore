@@ -1,3 +1,4 @@
 config.yaml
 opcua_exporter
 .DS_Store
+.vscode/*
