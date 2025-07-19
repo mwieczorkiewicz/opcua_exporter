@@ -139,6 +139,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 	if err != nil {
 		log.Fatal(err)
 	}
+	m.SetErrorHandler(handleErrors)
 
 	var nodeList []string
 	for nodeName := range handlerMap { // Node names are keys of handlerMap
@@ -191,6 +192,10 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 func cleanup(ctx context.Context, sub *monitor.Subscription) {
 	log.Printf("stats: sub=%d delivered=%d dropped=%d", sub.SubscriptionID(), sub.Delivered(), sub.Dropped())
 	sub.Unsubscribe(ctx)
+}
+
+func handleErrors(c *opcua.Client, sub *monitor.Subscription, err error) {
+	log.Printf("[error] sub=%d error=%s", sub.SubscriptionID(), err)
 }
 
 func handleMessage(msg *monitor.DataChangeMessage, handlerMap HandlerMap) {
