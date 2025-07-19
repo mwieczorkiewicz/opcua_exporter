@@ -1,15 +1,15 @@
-FROM golang:1.14.0 as golang_image
+FROM golang:1.24.0-bullseye as go
 
-FROM golang_image as tester
+FROM go as tester
 COPY . /build
 WORKDIR /build
 RUN go test
 
-FROM golang_image as builder
+FROM go as builder
 COPY --from=tester /build /build
 COPY --from=tester /go /go
 WORKDIR /build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o opcua_exporter .
+RUN CGO_ENABLED=0 GOOS=linux go build -o opcua_exporter .
 
 FROM scratch
 WORKDIR /

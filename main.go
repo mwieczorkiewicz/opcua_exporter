@@ -68,7 +68,7 @@ func init() {
 		Name:      "uptime_seconds",
 		Help:      "Time in seconds since the OPCUA exporter started",
 	})
-	uptimeGauge.Set(time.Now().Sub(startTime).Seconds())
+	uptimeGauge.Set(time.Since(startTime).Seconds())
 	prometheus.MustRegister(uptimeGauge)
 
 	messageCounter = prometheus.NewCounter(prometheus.CounterOpts{
@@ -114,7 +114,7 @@ func main() {
 	} else {
 		log.Print("Connected successfully")
 	}
-	defer client.Close()
+	defer client.Close(ctx)
 
 	metricMap := createMetrics(&nodes)
 	go setupMonitor(ctx, client, metricMap, *bufferSize)
@@ -126,7 +126,10 @@ func main() {
 }
 
 func getClient(endpoint *string) *opcua.Client {
-	client := opcua.NewClient(*endpoint)
+	client, err := opcua.NewClient(*endpoint)
+	if err != nil {
+		log.Fatal(err)
+	}
 	return client
 }
 
@@ -148,12 +151,12 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer cleanup(sub)
+	defer cleanup(ctx, sub)
 
 	lag := time.Millisecond * 10
 	timeoutCount := 0
 	for {
-		uptimeGauge.Set(time.Now().Sub(startTime).Seconds())
+		uptimeGauge.Set(time.Since(startTime).Seconds())
 		select {
 		case <-ctx.Done():
 			return
@@ -185,9 +188,9 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 
 }
 
-func cleanup(sub *monitor.Subscription) {
+func cleanup(ctx context.Context, sub *monitor.Subscription) {
 	log.Printf("stats: sub=%d delivered=%d dropped=%d", sub.SubscriptionID(), sub.Delivered(), sub.Dropped())
-	sub.Unsubscribe()
+	sub.Unsubscribe(ctx)
 }
 
 func handleMessage(msg *monitor.DataChangeMessage, handlerMap HandlerMap) {

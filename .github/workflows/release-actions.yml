@@ -15,10 +15,10 @@ jobs:
           - windows
     steps:
       - uses: actions/checkout@v2
-      - uses: wangyoucao577/go-release-action@v1.11
+      - uses: wangyoucao577/go-release-action@v1.53
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          goversion: 1.13
+          goversion: 1.23
           goarch: amd64
           goos: ${{ matrix.goos }}
           binary_name: opcua_exporter

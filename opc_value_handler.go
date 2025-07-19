@@ -50,9 +50,8 @@ func boolToFloat(v interface{}) (float64, error) {
 	b := reflectedVal.Bool()
 	if b {
 		return 1.0, nil
-	} else {
-		return 0.0, nil
 	}
+	return 0.0, nil
 }
 
 func coerceToFloat64(unknown interface{}) (float64, error) {

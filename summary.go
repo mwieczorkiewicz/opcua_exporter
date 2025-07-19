@@ -24,27 +24,23 @@ type EventSummaryCounter struct {
 	Interval time.Duration
 	Counts   map[string]int
 	Total    int
-	mutex    sync.Mutex
+	mutex    sync.RWMutex
 }
 
 // Inc adds one to the counter for the given channel
 func (esc *EventSummaryCounter) Inc(channel string) {
 	esc.mutex.Lock()
-	if _, ok := esc.Counts[channel]; ok {
-		esc.Counts[channel]++
-	} else {
-		esc.Counts[channel] = 1
-	}
+	defer esc.mutex.Unlock()
+	esc.Counts[channel]++
 	esc.Total++
-	esc.mutex.Unlock()
 }
 
 // Reset all the counters to zero
 func (esc *EventSummaryCounter) Reset() {
 	esc.mutex.Lock()
+	defer esc.mutex.Unlock()
 	esc.Counts = make(map[string]int)
 	esc.Total = 0
-	esc.mutex.Unlock()
 }
 
 // Start the goroutine that periodically logs the counter summary,
@@ -61,13 +57,15 @@ func (esc *EventSummaryCounter) Start(ctx context.Context) {
 				esc.Reset()
 			case <-ctx.Done():
 				log.Println("Exiting summary printing loop")
-				break
+				return
 			}
 		}
 	}()
 }
 
 func (esc *EventSummaryCounter) logSummary() {
+	esc.mutex.RLock()
+	defer esc.mutex.RUnlock()
 	log.Printf("Received %d events on %d channels in the last %v", esc.Total, len(esc.Counts), esc.Interval.String())
 	for channel, count := range esc.Counts {
 		rate := float64(count) / esc.Interval.Seconds()
