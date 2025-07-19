@@ -5,7 +5,7 @@ on:
 jobs:
   publish_binaries:
     name: Build binaries and attach them to the release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     if: github.event.release
     strategy:
       matrix:
