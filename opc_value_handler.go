@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/gopcua/opcua/ua"
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,8 +36,19 @@ func (h OpcValueHandler) FloatValue(v ua.Variant) (float64, error) {
 		return 0.0, errors.New("Can not convert null value to float64")
 	case ua.TypeIDBoolean:
 		return boolToFloat(v.Value())
+	case ua.TypeIDDateTime:
+		return timeToFloat(v.Value())
 	default:
 		return coerceToFloat64(v.Value())
+	}
+}
+
+func timeToFloat(v any) (float64, error) {
+	switch t := v.(type) {
+	case time.Time:
+		return float64(t.Unix()), nil
+	default:
+		return 0.0, fmt.Errorf("Expected a time.Time value, but got a %T", v)
 	}
 }
 

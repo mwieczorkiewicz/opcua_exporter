@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/gopcua/opcua/ua"
 	prom "github.com/prometheus/client_golang/prometheus"
@@ -11,6 +12,38 @@ import (
 func getTestHandler() OpcValueHandler {
 	var testGuage = prom.NewGauge(prom.GaugeOpts{Name: "foo"})
 	return OpcValueHandler{testGuage}
+}
+
+func TestCoerceTimeValues(t *testing.T) {
+	handler := getTestHandler()
+
+	// Test with a valid time.Time value
+	timeValue := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	variant, err := ua.NewVariant(timeValue)
+	assert.Nil(t, err)
+
+	res, err := handler.FloatValue(*variant)
+	assert.Nil(t, err)
+	assert.Equal(t, float64(timeValue.Unix()), res)
+
+	// Test with an invalid type
+	invalidVariant, _ := ua.NewVariant("not a time")
+	invalidVariant.Time()
+	_, err = handler.FloatValue(*invalidVariant)
+	assert.Error(t, err)
+}
+
+func TestTimeConversionToFloat(t *testing.T) {
+	time := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	ft, err := timeToFloat(time)
+	assert.Nil(t, err)
+	assert.Equal(t, float64(time.Unix()), ft)
+
+	// Test with an invalid type
+	invalidValue := "not a time"
+	_, err = timeToFloat(invalidValue)
+	assert.Error(t, err)
+	assert.Equal(t, "Expected a time.Time value, but got a string", err.Error())
 }
 
 func TestCoerceBooleanValues(t *testing.T) {

@@ -23,6 +23,11 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+const (
+	timeNode           string = "i=2258"            // Server time node ID
+	timeNodeMetricName string = "opcua_server_time" // Metric name for server time
+)
+
 var port = flag.Int("port", 9686, "Port to publish metrics on.")
 var endpoint = flag.String("endpoint", "opc.tcp://localhost:4096", "OPC UA Endpoint to connect to.")
 var promPrefix = flag.String("prom-prefix", "", "Prefix will be appended to emitted prometheus metrics")
@@ -33,6 +38,7 @@ var readTimeout = flag.Duration("read-timeout", 5*time.Second, "Timeout when wai
 var maxTimeouts = flag.Int("max-timeouts", 0, "The exporter will quit trying after this many read timeouts (0 to disable).")
 var bufferSize = flag.Int("buffer-size", 64, "Maximum number of messages in the receive buffer")
 var summaryInterval = flag.Duration("summary-interval", 5*time.Minute, "How frequently to print an event count summary")
+var subscribeToTimeNode = flag.Bool("subscribe-to-time-node", false, "Subscribe to the server time node and emit it as a gauge metric")
 
 // NodeConfig : Structure for representing OPCUA nodes to monitor.
 type NodeConfig struct {
@@ -103,6 +109,15 @@ func main() {
 		log.Fatal("Requires -config or -config-b64")
 	}
 
+	if *subscribeToTimeNode {
+		log.Print("Subscribing to server time node")
+		timeNode := NodeConfig{
+			NodeName:   timeNode,
+			MetricName: timeNodeMetricName,
+		}
+		nodes = append(nodes, timeNode)
+	}
+
 	if readError != nil {
 		log.Fatalf("Error reading config JSON: %v", readError)
 	}
@@ -139,7 +154,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 	if err != nil {
 		log.Fatal(err)
 	}
-	m.SetErrorHandler(handleErrors)
+	m.SetErrorHandler(handleError)
 
 	var nodeList []string
 	for nodeName := range handlerMap { // Node names are keys of handlerMap
@@ -194,7 +209,7 @@ func cleanup(ctx context.Context, sub *monitor.Subscription) {
 	sub.Unsubscribe(ctx)
 }
 
-func handleErrors(c *opcua.Client, sub *monitor.Subscription, err error) {
+func handleError(c *opcua.Client, sub *monitor.Subscription, err error) {
 	log.Printf("[error] sub=%d error=%s", sub.SubscriptionID(), err)
 }
 
