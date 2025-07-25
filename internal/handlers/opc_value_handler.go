@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"errors"
@@ -14,6 +14,13 @@ import (
 // Unfortunately, we don't know the message type at construction time.
 type OpcValueHandler struct {
 	gauge prometheus.Gauge
+}
+
+// NewOpcValueHandler creates a new OpcValueHandler with the specified gauge.
+func NewOpcValueHandler(g prometheus.Gauge) OpcValueHandler {
+	return OpcValueHandler{
+		gauge: g,
+	}
 }
 
 // Handle the message by deturmingint the float value

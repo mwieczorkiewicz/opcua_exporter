@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"bytes"
@@ -20,6 +20,18 @@ type OpcuaBitVectorHandler struct {
 	gauge      prometheus.Gauge
 	extractBit int // identifies the bit to extract. little endian bit & byte order.
 	debug      bool
+}
+
+// NewOpcuaBitVectorHandler creates a new OpcuaBitVectorHandler with the specified gauge, bit to extract, and debug flag.
+// The gauge is used to set the value of the extracted bit.
+// The extractBit specifies which bit to extract from the Variant value.
+// The debug flag enables logging of the extracted bit value.
+func NewOpcuaBitVectorHandler(g prometheus.Gauge, extractBit int, debug bool) OpcuaBitVectorHandler {
+	return OpcuaBitVectorHandler{
+		gauge:      g,
+		extractBit: extractBit,
+		debug:      debug,
+	}
 }
 
 // Handle computes the float value and emit it as a prometheus metric.

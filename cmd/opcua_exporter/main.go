@@ -1,25 +1,22 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gopcua/opcua"
 	opcua_debug "github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/monitor"
-	"github.com/gopcua/opcua/ua"
+
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/handlers"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -40,21 +37,14 @@ var summaryInterval = flag.Duration("summary-interval", 5*time.Minute, "How freq
 var subscribeToTimeNode = flag.Bool("subscribe-to-time-node", false, "Subscribe to the server time node and emit it as a gauge metric")
 
 // NodeConfig : Structure for representing OPCUA nodes to monitor.
-type NodeConfig struct {
-	NodeName   string      `yaml:"nodeName"`             // OPC UA node identifier
-	MetricName string      `yaml:"metricName"`           // Prometheus metric name to emit
-	ExtractBit interface{} `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
-}
+type NodeConfig = config.NodeMapping
 
 // MsgHandler interface can convert OPC UA Variant objects
 // and emit prometheus metrics
-type MsgHandler interface {
-	FloatValue(v ua.Variant) (float64, error) // metric value to be emitted
-	Handle(v ua.Variant) error                // compute the metric value and publish it
-}
+type MsgHandler = handlers.MsgHandler
 
 // HandlerMap maps OPC UA channel names to MsgHandlers
-type HandlerMap map[string][]handlerMapRecord
+type HandlerMap = map[string][]handlerMapRecord
 
 type handlerMapRecord struct {
 	config  NodeConfig
@@ -64,7 +54,7 @@ type handlerMapRecord struct {
 var startTime = time.Now()
 var uptimeGauge prometheus.Gauge
 var messageCounter prometheus.Counter
-var eventSummaryCounter *EventSummaryCounter
+var eventSummaryCounter *handlers.EventSummaryCounter
 
 func init() {
 	subsystem := "opcua_exporter"
@@ -83,7 +73,7 @@ func init() {
 	})
 	prometheus.MustRegister(messageCounter)
 
-	eventSummaryCounter = NewEventSummaryCounter(*summaryInterval)
+	eventSummaryCounter = handlers.NewEventSummaryCounter(*summaryInterval)
 }
 
 func main() {
@@ -100,10 +90,10 @@ func main() {
 	var readError error
 	if *configB64 != "" {
 		log.Print("Using base64-encoded config")
-		nodes, readError = readConfigBase64(configB64)
+		nodes, readError = config.ReadBase64(configB64)
 	} else if *nodeListFile != "" {
 		log.Printf("Reading config from %s", *nodeListFile)
-		nodes, readError = readConfigFile(*nodeListFile)
+		nodes, readError = config.ReadFile(*nodeListFile)
 	} else {
 		log.Fatal("Requires -config or -config-b64")
 	}
@@ -255,43 +245,9 @@ func createHandler(nodeConfig NodeConfig) MsgHandler {
 	var handler MsgHandler
 	if nodeConfig.ExtractBit != nil {
 		extractBit := nodeConfig.ExtractBit.(int) // coerce interface to an integer
-		handler = OpcuaBitVectorHandler{g, extractBit, *debug}
+		handler = handlers.NewOpcuaBitVectorHandler(g, extractBit, *debug)
 	} else {
-		handler = OpcValueHandler{g}
+		handler = handlers.NewOpcValueHandler(g)
 	}
 	return handler
-}
-
-func readConfigFile(path string) ([]NodeConfig, error) {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-
-	f, err := os.Open(absPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return parseConfigYAML(f)
-}
-
-func readConfigBase64(encodedConfig *string) ([]NodeConfig, error) {
-	config, decodeErr := base64.StdEncoding.DecodeString(*encodedConfig)
-	if decodeErr != nil {
-		log.Fatal(decodeErr)
-	}
-	return parseConfigYAML(bytes.NewReader(config))
-}
-
-func parseConfigYAML(config io.Reader) ([]NodeConfig, error) {
-	content, err := io.ReadAll(config)
-	if err != nil {
-		return nil, err
-	}
-
-	var nodes []NodeConfig
-	err = yaml.Unmarshal(content, &nodes)
-	log.Printf("Found %d nodes in config file.", len(nodes))
-	return nodes, err
 }
