@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -286,7 +285,7 @@ func readConfigBase64(encodedConfig *string) ([]NodeConfig, error) {
 }
 
 func parseConfigYAML(config io.Reader) ([]NodeConfig, error) {
-	content, err := ioutil.ReadAll(config)
+	content, err := io.ReadAll(config)
 	if err != nil {
 		return nil, err
 	}
