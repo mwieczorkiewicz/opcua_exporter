@@ -4,3 +4,4 @@ config.yaml
 
 opcua_exporter
 !cmd/opcua_exporter 
+CLAUDE.md

@@ -92,7 +92,8 @@ func TestCreateMetrics(t *testing.T) {
 		},
 	}
 
-	handlerMap := createMetrics(&nodeconfigs)
+	handlerMap, err := createMetrics(&nodeconfigs)
+	assert.NoError(t, err)
 	assert.Equal(t, len(handlerMap), 2)
 	assert.Equal(t, len(handlerMap["foo"]), 2)
 	assert.Equal(t, len(handlerMap["bar"]), 1)

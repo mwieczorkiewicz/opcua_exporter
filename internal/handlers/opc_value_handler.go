@@ -23,8 +23,8 @@ func NewOpcValueHandler(g prometheus.Gauge) OpcValueHandler {
 	}
 }
 
-// Handle the message by deturmingint the float value
-// and emiting it as a gauge metric
+// Handle the message by determining the float value
+// and emitting it as a gauge metric
 func (h OpcValueHandler) Handle(v ua.Variant) error {
 	floatVal, err := h.FloatValue(v)
 	if err != nil {
@@ -35,7 +35,7 @@ func (h OpcValueHandler) Handle(v ua.Variant) error {
 }
 
 // FloatValue converts a ua.Variant to float64
-// All prometheus metics are float64.
+// All prometheus metrics are float64.
 // Since OPCUA message values have variable types, sort out how to convert them to float.
 func (h OpcValueHandler) FloatValue(v ua.Variant) (float64, error) {
 	switch v.Type() {

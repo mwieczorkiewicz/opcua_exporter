@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gopcua/opcua"
@@ -56,6 +59,29 @@ var uptimeGauge prometheus.Gauge
 var messageCounter prometheus.Counter
 var eventSummaryCounter *handlers.EventSummaryCounter
 
+// App holds the application state and context
+type App struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	client *opcua.Client
+	server *http.Server
+}
+
+// shutdown performs graceful shutdown of the application
+func (app *App) shutdown(err error) {
+	log.Printf("Shutting down: %v", err)
+	if app.client != nil {
+		app.client.Close(app.ctx)
+	}
+	if app.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		app.server.Shutdown(ctx)
+	}
+	app.cancel()
+	os.Exit(1)
+}
+
 func init() {
 	subsystem := "opcua_exporter"
 	uptimeGauge = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -84,6 +110,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	app := &App{
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	// Handle graceful shutdown on signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Print("Received shutdown signal")
+		app.shutdown(nil)
+	}()
+
 	eventSummaryCounter.Start(ctx)
 
 	var nodes []NodeConfig
@@ -95,7 +135,13 @@ func main() {
 		log.Printf("Reading config from %s", *nodeListFile)
 		nodes, readError = config.ReadFile(*nodeListFile)
 	} else {
-		log.Fatal("Requires -config or -config-b64")
+		app.shutdown(fmt.Errorf("requires -config or -config-b64"))
+		return
+	}
+
+	if readError != nil {
+		app.shutdown(fmt.Errorf("error reading config: %w", readError))
+		return
 	}
 
 	if *subscribeToTimeNode {
@@ -107,41 +153,63 @@ func main() {
 		nodes = append(nodes, timeNode)
 	}
 
-	if readError != nil {
-		log.Fatalf("Error reading config JSON: %v", readError)
+	client, err := getClient(endpoint)
+	if err != nil {
+		app.shutdown(fmt.Errorf("error creating OPC UA client: %w", err))
+		return
 	}
+	app.client = client
 
-	client := getClient(endpoint)
 	log.Printf("Connecting to OPCUA server at %s", *endpoint)
 	if err := client.Connect(ctx); err != nil {
-		log.Fatalf("Error connecting to OPC UA client: %v", err)
-	} else {
-		log.Print("Connected successfully")
+		app.shutdown(fmt.Errorf("error connecting to OPC UA client: %w", err))
+		return
 	}
+	log.Print("Connected successfully")
 	defer client.Close(ctx)
 
-	metricMap := createMetrics(&nodes)
-	go setupMonitor(ctx, client, metricMap, *bufferSize)
+	metricMap, err := createMetrics(&nodes)
+	if err != nil {
+		app.shutdown(fmt.Errorf("error creating metrics: %w", err))
+		return
+	}
+
+	go func() {
+		if err := setupMonitor(ctx, client, metricMap, *bufferSize); err != nil {
+			app.shutdown(fmt.Errorf("error setting up monitor: %w", err))
+		}
+	}()
 
 	http.Handle("/metrics", promhttp.Handler())
 	var listenOn = fmt.Sprintf(":%d", *port)
+
+	app.server = &http.Server{
+		Addr:         listenOn,
+		Handler:      nil,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	log.Printf("Serving metrics on %s", listenOn)
-	log.Fatal(http.ListenAndServe(listenOn, nil))
+	if err := app.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		app.shutdown(fmt.Errorf("HTTP server error: %w", err))
+	}
 }
 
-func getClient(endpoint *string) *opcua.Client {
+func getClient(endpoint *string) (*opcua.Client, error) {
 	client, err := opcua.NewClient(*endpoint)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to create OPC UA client: %w", err)
 	}
-	return client
+	return client, nil
 }
 
 // Subscribe to all the nodes and update the appropriate prometheus metrics on change
-func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerMap, bufferSize int) {
+func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerMap, bufferSize int) error {
 	m, err := monitor.NewNodeMonitor(client)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to create node monitor: %w", err)
 	}
 	m.SetErrorHandler(handleError)
 
@@ -154,7 +222,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 	params := opcua.SubscriptionParameters{Interval: time.Second}
 	sub, err := m.ChanSubscribe(ctx, &params, ch, nodeList...)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to create subscription: %w", err)
 	}
 	defer cleanup(ctx, sub)
 
@@ -164,7 +232,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 		uptimeGauge.Set(time.Since(startTime).Seconds())
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case msg := <-ch:
 			if msg.Error != nil {
 				log.Printf("[error ] sub=%d error=%s", sub.SubscriptionID(), msg.Error)
@@ -186,7 +254,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 			timeoutCount++
 			log.Printf("Timeout %d wating for subscription messages", timeoutCount)
 			if *maxTimeouts > 0 && timeoutCount >= *maxTimeouts {
-				log.Fatalf("Max timeouts (%d) exceeded. Quitting.", *maxTimeouts)
+				return fmt.Errorf("max timeouts (%d) exceeded", *maxTimeouts)
 			}
 		}
 	}
@@ -218,21 +286,28 @@ func handleMessage(msg *monitor.DataChangeMessage, handlerMap HandlerMap) {
 }
 
 // Initialize a Prometheus gauge for each node. Return them as a map.
-func createMetrics(nodeConfigs *[]NodeConfig) HandlerMap {
+func createMetrics(nodeConfigs *[]NodeConfig) (HandlerMap, error) {
 	handlerMap := make(HandlerMap)
 	for _, nodeConfig := range *nodeConfigs {
 		nodeName := nodeConfig.NodeName
 		metricName := nodeConfig.MetricName
-		mapRecord := handlerMapRecord{nodeConfig, createHandler(nodeConfig)}
+		handler, err := createHandler(nodeConfig)
+		if err != nil {
+			return nil, fmt.Errorf("error creating handler for %s: %w", metricName, err)
+		}
+		mapRecord := handlerMapRecord{nodeConfig, handler}
 		handlerMap[nodeName] = append(handlerMap[nodeName], mapRecord)
 		log.Printf("Created prom metric %s for OPC UA node %s", metricName, nodeName)
 	}
 
-	return handlerMap
+	return handlerMap, nil
 }
 
-func createHandler(nodeConfig NodeConfig) MsgHandler {
+func createHandler(nodeConfig NodeConfig) (MsgHandler, error) {
 	metricName := nodeConfig.MetricName
+	if metricName == "" {
+		return nil, fmt.Errorf("metric name cannot be empty")
+	}
 	if *promPrefix != "" {
 		metricName = fmt.Sprintf("%s_%s", *promPrefix, metricName)
 	}
@@ -240,14 +315,19 @@ func createHandler(nodeConfig NodeConfig) MsgHandler {
 		Name: metricName,
 		Help: "From OPC UA",
 	})
-	prometheus.MustRegister(g)
+	if err := prometheus.Register(g); err != nil {
+		return nil, fmt.Errorf("failed to register metric %s: %w", metricName, err)
+	}
 
 	var handler MsgHandler
 	if nodeConfig.ExtractBit != nil {
-		extractBit := nodeConfig.ExtractBit.(int) // coerce interface to an integer
+		extractBit, ok := nodeConfig.ExtractBit.(int)
+		if !ok {
+			return nil, fmt.Errorf("extractBit must be an integer, got %T", nodeConfig.ExtractBit)
+		}
 		handler = handlers.NewOpcuaBitVectorHandler(g, extractBit, *debug)
 	} else {
 		handler = handlers.NewOpcValueHandler(g)
 	}
-	return handler
+	return handler, nil
 }

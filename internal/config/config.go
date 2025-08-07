@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -15,7 +16,7 @@ import (
 type NodeMapping struct {
 	NodeName   string      `yaml:"nodeName"`             // OPC UA node identifier
 	MetricName string      `yaml:"metricName"`           // Prometheus metric name to emit
-	ExtractBit interface{} `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
+	ExtractBit any `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
 }
 
 // ReadFile reads the configuration from a YAML file at the specified path.
@@ -39,7 +40,7 @@ func ReadFile(path string) ([]NodeMapping, error) {
 func ReadBase64(encodedConfig *string) ([]NodeMapping, error) {
 	config, decodeErr := base64.StdEncoding.DecodeString(*encodedConfig)
 	if decodeErr != nil {
-		log.Fatal(decodeErr)
+		return nil, fmt.Errorf("failed to decode base64 config: %w", decodeErr)
 	}
 	return parse(bytes.NewReader(config))
 }
