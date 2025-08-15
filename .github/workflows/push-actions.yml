@@ -13,9 +13,12 @@ jobs:
       - uses: actions/setup-go@v1
         with:
           go-version: ${{ matrix.go }}
-      - name: test
-        run: go test ./...
+      - name: unit-test
+        run: go test -short ./...
         
       # Not sure if we stand to learn much by running build after test here, but it shouldn't cost much either.
       - name: build 
         run: go build ./cmd/opcua_exporter
+        
+      - name: e2e-test
+        run: go test ./e2e/...

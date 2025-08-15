@@ -2,47 +2,75 @@ package config
 
 import (
 	"fmt"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigErrorHandling(t *testing.T) {
-	t.Run("invalid base64", func(t *testing.T) {
-		invalidB64 := "invalid-base64!!!"
-		nodes, err := ReadBase64(&invalidB64)
+	t.Run("malformed yaml config file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "malformed.yaml")
 		
-		assert.Error(t, err)
-		assert.Nil(t, nodes)
-		assert.Contains(t, err.Error(), "failed to decode base64 config")
-	})
-	
-	t.Run("malformed yaml", func(t *testing.T) {
 		malformedYaml := `
 invalid:
   yaml:
     - missing
-      closing:
-`
-		nodes, err := parse(strings.NewReader(malformedYaml))
+      closing:`
+      
+		err := os.WriteFile(configFile, []byte(malformedYaml), 0644)
+		require.NoError(t, err)
 		
+		_, err = Load(configFile)
 		assert.Error(t, err)
-		assert.Nil(t, nodes)
 	})
 	
-	t.Run("empty config", func(t *testing.T) {
-		nodes, err := parse(strings.NewReader(""))
+	t.Run("empty config file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "empty.yaml")
 		
+		err := os.WriteFile(configFile, []byte(""), 0644)
+		require.NoError(t, err)
+		
+		cfg, err := Load(configFile)
 		assert.NoError(t, err)
-		assert.Empty(t, nodes)
+		assert.NotNil(t, cfg)
+		assert.Empty(t, cfg.NodeMappings)
 	})
 	
-	t.Run("null config", func(t *testing.T) {
-		nodes, err := parse(strings.NewReader("null"))
+	t.Run("null config file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "null.yaml")
 		
+		err := os.WriteFile(configFile, []byte("null"), 0644)
+		require.NoError(t, err)
+		
+		cfg, err := Load(configFile)
 		assert.NoError(t, err)
-		assert.Nil(t, nodes)
+		assert.NotNil(t, cfg)
+	})
+	
+	t.Run("config file with only valid defaults", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "defaults.yaml")
+		
+		yamlContent := `
+port: 9999
+endpoint: "opc.tcp://test:4840"
+debug: true`
+		
+		err := os.WriteFile(configFile, []byte(yamlContent), 0644)
+		require.NoError(t, err)
+		
+		cfg, err := Load(configFile)
+		assert.NoError(t, err)
+		assert.Equal(t, 9999, cfg.Port)
+		assert.Equal(t, "opc.tcp://test:4840", cfg.Endpoint)
+		assert.True(t, cfg.Debug)
+		assert.Empty(t, cfg.NodeMappings)
 	})
 }
 
@@ -106,6 +134,34 @@ func TestNodeMappingValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFilterValidNodeMappingsWithValidation(t *testing.T) {
+	mappings := []NodeMapping{
+		{NodeName: "valid1", MetricName: "metric1"},
+		{NodeName: "", MetricName: "metric2"}, // Invalid: empty node name
+		{NodeName: "valid3", MetricName: ""}, // Invalid: empty metric name
+		{NodeName: "valid4", MetricName: "metric4"},
+		{NodeName: "valid5", MetricName: "metric5", ExtractBit: -1}, // Filter doesn't check extractBit
+	}
+	
+	// Test that our filter function removes mappings with empty names
+	valid := filterValidNodeMappings(mappings)
+	assert.Equal(t, 3, len(valid)) // valid1, valid4, and valid5 should remain
+	
+	// The filter only checks for empty strings, not extractBit validation
+	assert.Equal(t, "valid1", valid[0].NodeName)
+	assert.Equal(t, "valid4", valid[1].NodeName) 
+	assert.Equal(t, "valid5", valid[2].NodeName)
+	
+	// Test validation separately - some filtered mappings may still fail validation
+	validCount := 0
+	for _, mapping := range valid {
+		if mapping.Validate() == nil {
+			validCount++
+		}
+	}
+	assert.Equal(t, 2, validCount) // Only valid1 and valid4 pass validation
 }
 
 // Add validation method to NodeMapping

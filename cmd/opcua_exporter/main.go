@@ -91,54 +91,97 @@ func init() {
 	prometheus.MustRegister(messageCounter)
 }
 
+// parseNodeFlag parses a node flag string in format "nodeId,metricName[,extractBit]"
+func parseNodeFlag(nodeFlag string) (config.NodeMapping, error) {
+	parts := strings.Split(nodeFlag, ",")
+	if len(parts) < 2 {
+		return config.NodeMapping{}, fmt.Errorf("expected format 'nodeId,metricName[,extractBit]'")
+	}
+
+	nodeMapping := config.NodeMapping{
+		NodeName:   strings.TrimSpace(parts[0]),
+		MetricName: strings.TrimSpace(parts[1]),
+	}
+
+	if len(parts) >= 3 {
+		extractBitStr := strings.TrimSpace(parts[2])
+		if extractBitStr != "" {
+			var extractBit int
+			if _, err := fmt.Sscanf(extractBitStr, "%d", &extractBit); err != nil {
+				return config.NodeMapping{}, fmt.Errorf("invalid extractBit value '%s'", extractBitStr)
+			}
+			nodeMapping.ExtractBit = extractBit
+		}
+	}
+
+	return nodeMapping, nil
+}
+
 func main() {
 	log.Print("Starting up.")
 	
-	// Initialize viper configuration with flags and environment variables
-	pflag.Int("port", 9686, "Port to publish metrics on.")
-	pflag.String("endpoint", "opc.tcp://localhost:4096", "OPC UA Endpoint to connect to.")
-	pflag.String("prom-prefix", "", "Prefix will be appended to emitted prometheus metrics")
-	pflag.String("config", "", "Path to a file from which to read the list of OPC UA nodes to monitor")
-	pflag.String("config-b64", "", "Base64-encoded config JSON. Overrides -config")
+	// Parse command-line flags
+	var configFile string
+	pflag.StringVar(&configFile, "config", "", "Path to YAML configuration file")
+	pflag.Int("port", 9686, "Port to publish metrics on")
+	pflag.String("endpoint", "opc.tcp://localhost:4096", "OPC UA Endpoint to connect to")
+	pflag.String("prom-prefix", "", "Prefix for prometheus metrics")
 	pflag.Bool("debug", false, "Enable debug logging")
-	pflag.Duration("read-timeout", 5*time.Second, "Timeout when waiting for OPCUA subscription messages")
-	pflag.Int("max-timeouts", 0, "The exporter will quit trying after this many read timeouts (0 to disable).")
-	pflag.Int("buffer-size", 64, "Maximum number of messages in the receive buffer")
-	pflag.Duration("summary-interval", 5*time.Minute, "How frequently to print an event count summary")
-	pflag.Bool("subscribe-to-time-node", false, "Subscribe to the server time node and emit it as a gauge metric")
-	pflag.StringArray("node", []string{}, "Node mapping in format 'nodeId,metricName[,extractBit]' (can be repeated)")
+	pflag.Duration("read-timeout", 5*time.Second, "Timeout for OPCUA subscription messages")
+	pflag.Int("max-timeouts", 0, "Max timeouts before quitting (0=disabled)")
+	pflag.Int("buffer-size", 64, "Message buffer size")
+	pflag.Duration("summary-interval", 5*time.Minute, "Event count summary interval")
+	pflag.Bool("subscribe-to-time-node", false, "Subscribe to server time node")
+	pflag.StringArray("node", []string{}, "Node mapping: 'nodeId,metricName[,extractBit]'")
 	pflag.Parse()
 
+	// Load configuration
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		log.Fatalf("Error loading configuration: %v", err)
+	}
+
+	// Bind command-line flags to override configuration
 	viper.BindPFlags(pflag.CommandLine)
-	cfg := config.InitViper()
 	
-	// Parse node flag values and add them to configuration
+	// Apply flag overrides to configuration
+	if viper.IsSet("port") {
+		cfg.Port = viper.GetInt("port")
+	}
+	if viper.IsSet("endpoint") {
+		cfg.Endpoint = viper.GetString("endpoint")
+	}
+	if viper.IsSet("prom-prefix") {
+		cfg.PromPrefix = viper.GetString("prom-prefix")
+	}
+	if viper.IsSet("debug") {
+		cfg.Debug = viper.GetBool("debug")
+	}
+	if viper.IsSet("read-timeout") {
+		cfg.ReadTimeout = viper.GetDuration("read-timeout")
+	}
+	if viper.IsSet("max-timeouts") {
+		cfg.MaxTimeouts = viper.GetInt("max-timeouts")
+	}
+	if viper.IsSet("buffer-size") {
+		cfg.BufferSize = viper.GetInt("buffer-size")
+	}
+	if viper.IsSet("summary-interval") {
+		cfg.SummaryInterval = viper.GetDuration("summary-interval")
+	}
+	if viper.IsSet("subscribe-to-time-node") {
+		cfg.SubscribeToTimeNode = viper.GetBool("subscribe-to-time-node")
+	}
+	
+	// Parse node flags and add to configuration
 	nodeFlags := viper.GetStringSlice("node")
 	for _, nodeFlag := range nodeFlags {
-		parts := strings.Split(nodeFlag, ",")
-		if len(parts) < 2 {
-			log.Printf("Invalid node flag format '%s', expected 'nodeId,metricName[,extractBit]'", nodeFlag)
+		nodeMapping, err := parseNodeFlag(nodeFlag)
+		if err != nil {
+			log.Printf("Invalid node flag '%s': %v", nodeFlag, err)
 			continue
 		}
-		
-		nodeMapping := config.NodeMapping{
-			NodeName:   strings.TrimSpace(parts[0]),
-			MetricName: strings.TrimSpace(parts[1]),
-		}
-		
-		if len(parts) >= 3 {
-			extractBitStr := strings.TrimSpace(parts[2])
-			if extractBitStr != "" {
-				var extractBit int
-				if _, err := fmt.Sscanf(extractBitStr, "%d", &extractBit); err != nil {
-					log.Printf("Invalid extractBit value '%s' in node flag '%s'", extractBitStr, nodeFlag)
-					continue
-				}
-				nodeMapping.ExtractBit = extractBit
-			}
-		}
-		
-		cfg.NodeMappings = append(cfg.NodeMappings, nodeMapping)
+		cfg.AddNodeMapping(nodeMapping)
 		log.Printf("Added node mapping from flag: %s -> %s", nodeMapping.NodeName, nodeMapping.MetricName)
 	}
 
@@ -164,28 +207,14 @@ func main() {
 	eventSummaryCounter = handlers.NewEventSummaryCounter(cfg.SummaryInterval)
 	eventSummaryCounter.Start(ctx)
 
-	var nodes []NodeConfig
-	var readError error
-	
-	// Priority order: 1. Direct node mappings in config, 2. Base64 config, 3. Config file
-	if len(cfg.NodeMappings) > 0 {
-		log.Printf("Using %d node mappings from configuration", len(cfg.NodeMappings))
-		nodes = cfg.NodeMappings
-	} else if cfg.ConfigB64 != "" {
-		log.Print("Using base64-encoded config")
-		nodes, readError = config.ReadBase64(&cfg.ConfigB64)
-	} else if cfg.ConfigFile != "" {
-		log.Printf("Reading config from %s", cfg.ConfigFile)
-		nodes, readError = config.ReadFile(cfg.ConfigFile)
-	} else {
-		app.shutdown(fmt.Errorf("requires node mappings via config file, base64 config, YAML config, or environment variables"))
+	// Check if we have any node mappings
+	if len(cfg.NodeMappings) == 0 {
+		app.shutdown(fmt.Errorf("no node mappings configured - use --config, --node flags, or environment variables"))
 		return
 	}
 
-	if readError != nil {
-		app.shutdown(fmt.Errorf("error reading config: %w", readError))
-		return
-	}
+	log.Printf("Using %d node mappings", len(cfg.NodeMappings))
+	nodes := cfg.NodeMappings
 
 	if cfg.SubscribeToTimeNode {
 		log.Print("Subscribing to server time node")
