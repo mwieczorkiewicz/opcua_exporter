@@ -2,18 +2,20 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gopcua/opcua"
 	opcua_debug "github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/monitor"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/handlers"
@@ -27,17 +29,6 @@ const (
 	timeNodeMetricName string = "opcua_server_time" // Metric name for server time
 )
 
-var port = flag.Int("port", 9686, "Port to publish metrics on.")
-var endpoint = flag.String("endpoint", "opc.tcp://localhost:4096", "OPC UA Endpoint to connect to.")
-var promPrefix = flag.String("prom-prefix", "", "Prefix will be appended to emitted prometheus metrics")
-var nodeListFile = flag.String("config", "", "Path to a file from which to read the list of OPC UA nodes to monitor")
-var configB64 = flag.String("config-b64", "", "Base64-encoded config JSON. Overrides -config")
-var debug = flag.Bool("debug", false, "Enable debug logging")
-var readTimeout = flag.Duration("read-timeout", 5*time.Second, "Timeout when waiting for OPCUA subscription messages")
-var maxTimeouts = flag.Int("max-timeouts", 0, "The exporter will quit trying after this many read timeouts (0 to disable).")
-var bufferSize = flag.Int("buffer-size", 64, "Maximum number of messages in the receive buffer")
-var summaryInterval = flag.Duration("summary-interval", 5*time.Minute, "How frequently to print an event count summary")
-var subscribeToTimeNode = flag.Bool("subscribe-to-time-node", false, "Subscribe to the server time node and emit it as a gauge metric")
 
 // NodeConfig : Structure for representing OPCUA nodes to monitor.
 type NodeConfig = config.NodeMapping
@@ -98,14 +89,60 @@ func init() {
 		Help:      "Total number of OPCUA channel updates received by the exporter",
 	})
 	prometheus.MustRegister(messageCounter)
-
-	eventSummaryCounter = handlers.NewEventSummaryCounter(*summaryInterval)
 }
 
 func main() {
 	log.Print("Starting up.")
-	flag.Parse()
-	opcua_debug.Enable = *debug
+	
+	// Initialize viper configuration with flags and environment variables
+	pflag.Int("port", 9686, "Port to publish metrics on.")
+	pflag.String("endpoint", "opc.tcp://localhost:4096", "OPC UA Endpoint to connect to.")
+	pflag.String("prom-prefix", "", "Prefix will be appended to emitted prometheus metrics")
+	pflag.String("config", "", "Path to a file from which to read the list of OPC UA nodes to monitor")
+	pflag.String("config-b64", "", "Base64-encoded config JSON. Overrides -config")
+	pflag.Bool("debug", false, "Enable debug logging")
+	pflag.Duration("read-timeout", 5*time.Second, "Timeout when waiting for OPCUA subscription messages")
+	pflag.Int("max-timeouts", 0, "The exporter will quit trying after this many read timeouts (0 to disable).")
+	pflag.Int("buffer-size", 64, "Maximum number of messages in the receive buffer")
+	pflag.Duration("summary-interval", 5*time.Minute, "How frequently to print an event count summary")
+	pflag.Bool("subscribe-to-time-node", false, "Subscribe to the server time node and emit it as a gauge metric")
+	pflag.StringArray("node", []string{}, "Node mapping in format 'nodeId,metricName[,extractBit]' (can be repeated)")
+	pflag.Parse()
+
+	viper.BindPFlags(pflag.CommandLine)
+	cfg := config.InitViper()
+	
+	// Parse node flag values and add them to configuration
+	nodeFlags := viper.GetStringSlice("node")
+	for _, nodeFlag := range nodeFlags {
+		parts := strings.Split(nodeFlag, ",")
+		if len(parts) < 2 {
+			log.Printf("Invalid node flag format '%s', expected 'nodeId,metricName[,extractBit]'", nodeFlag)
+			continue
+		}
+		
+		nodeMapping := config.NodeMapping{
+			NodeName:   strings.TrimSpace(parts[0]),
+			MetricName: strings.TrimSpace(parts[1]),
+		}
+		
+		if len(parts) >= 3 {
+			extractBitStr := strings.TrimSpace(parts[2])
+			if extractBitStr != "" {
+				var extractBit int
+				if _, err := fmt.Sscanf(extractBitStr, "%d", &extractBit); err != nil {
+					log.Printf("Invalid extractBit value '%s' in node flag '%s'", extractBitStr, nodeFlag)
+					continue
+				}
+				nodeMapping.ExtractBit = extractBit
+			}
+		}
+		
+		cfg.NodeMappings = append(cfg.NodeMappings, nodeMapping)
+		log.Printf("Added node mapping from flag: %s -> %s", nodeMapping.NodeName, nodeMapping.MetricName)
+	}
+
+	opcua_debug.Enable = cfg.Debug
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -124,18 +161,24 @@ func main() {
 		app.shutdown(nil)
 	}()
 
+	eventSummaryCounter = handlers.NewEventSummaryCounter(cfg.SummaryInterval)
 	eventSummaryCounter.Start(ctx)
 
 	var nodes []NodeConfig
 	var readError error
-	if *configB64 != "" {
+	
+	// Priority order: 1. Direct node mappings in config, 2. Base64 config, 3. Config file
+	if len(cfg.NodeMappings) > 0 {
+		log.Printf("Using %d node mappings from configuration", len(cfg.NodeMappings))
+		nodes = cfg.NodeMappings
+	} else if cfg.ConfigB64 != "" {
 		log.Print("Using base64-encoded config")
-		nodes, readError = config.ReadBase64(configB64)
-	} else if *nodeListFile != "" {
-		log.Printf("Reading config from %s", *nodeListFile)
-		nodes, readError = config.ReadFile(*nodeListFile)
+		nodes, readError = config.ReadBase64(&cfg.ConfigB64)
+	} else if cfg.ConfigFile != "" {
+		log.Printf("Reading config from %s", cfg.ConfigFile)
+		nodes, readError = config.ReadFile(cfg.ConfigFile)
 	} else {
-		app.shutdown(fmt.Errorf("requires -config or -config-b64"))
+		app.shutdown(fmt.Errorf("requires node mappings via config file, base64 config, YAML config, or environment variables"))
 		return
 	}
 
@@ -144,7 +187,7 @@ func main() {
 		return
 	}
 
-	if *subscribeToTimeNode {
+	if cfg.SubscribeToTimeNode {
 		log.Print("Subscribing to server time node")
 		timeNode := NodeConfig{
 			NodeName:   timeNode,
@@ -153,14 +196,14 @@ func main() {
 		nodes = append(nodes, timeNode)
 	}
 
-	client, err := getClient(endpoint)
+	client, err := getClient(&cfg.Endpoint)
 	if err != nil {
 		app.shutdown(fmt.Errorf("error creating OPC UA client: %w", err))
 		return
 	}
 	app.client = client
 
-	log.Printf("Connecting to OPCUA server at %s", *endpoint)
+	log.Printf("Connecting to OPCUA server at %s", cfg.Endpoint)
 	if err := client.Connect(ctx); err != nil {
 		app.shutdown(fmt.Errorf("error connecting to OPC UA client: %w", err))
 		return
@@ -175,13 +218,13 @@ func main() {
 	}
 
 	go func() {
-		if err := setupMonitor(ctx, client, metricMap, *bufferSize); err != nil {
+		if err := setupMonitor(ctx, client, metricMap, cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.Debug); err != nil {
 			app.shutdown(fmt.Errorf("error setting up monitor: %w", err))
 		}
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())
-	var listenOn = fmt.Sprintf(":%d", *port)
+	var listenOn = fmt.Sprintf(":%d", cfg.Port)
 
 	app.server = &http.Server{
 		Addr:         listenOn,
@@ -206,7 +249,7 @@ func getClient(endpoint *string) (*opcua.Client, error) {
 }
 
 // Subscribe to all the nodes and update the appropriate prometheus metrics on change
-func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerMap, bufferSize int) error {
+func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerMap, bufferSize int, readTimeout time.Duration, maxTimeouts int, debug bool) error {
 	m, err := monitor.NewNodeMonitor(client)
 	if err != nil {
 		return fmt.Errorf("failed to create node monitor: %w", err)
@@ -239,7 +282,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 			} else if msg.Value == nil {
 				log.Printf("nil value received for node %s", msg.NodeID)
 			} else {
-				if *debug {
+				if debug {
 					log.Printf("[message ] sub=%d ts=%s node=%s value=%v", sub.SubscriptionID(), msg.SourceTimestamp.UTC().Format(time.RFC3339), msg.NodeID, msg.Value.Value())
 				}
 
@@ -247,14 +290,14 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 				nodeID := msg.NodeID.String()
 				eventSummaryCounter.Inc(nodeID)
 
-				handleMessage(msg, handlerMap)
+				handleMessage(msg, handlerMap, debug)
 			}
 			time.Sleep(lag)
-		case <-time.After(*readTimeout):
+		case <-time.After(readTimeout):
 			timeoutCount++
 			log.Printf("Timeout %d wating for subscription messages", timeoutCount)
-			if *maxTimeouts > 0 && timeoutCount >= *maxTimeouts {
-				return fmt.Errorf("max timeouts (%d) exceeded", *maxTimeouts)
+			if maxTimeouts > 0 && timeoutCount >= maxTimeouts {
+				return fmt.Errorf("max timeouts (%d) exceeded", maxTimeouts)
 			}
 		}
 	}
@@ -270,12 +313,12 @@ func handleError(c *opcua.Client, sub *monitor.Subscription, err error) {
 	log.Printf("[error] sub=%d error=%s", sub.SubscriptionID(), err)
 }
 
-func handleMessage(msg *monitor.DataChangeMessage, handlerMap HandlerMap) {
+func handleMessage(msg *monitor.DataChangeMessage, handlerMap HandlerMap, debug bool) {
 	nodeID := msg.NodeID.String()
 	for _, handlerMapRec := range handlerMap[nodeID] {
 		handler := handlerMapRec.handler
 		value := msg.Value
-		if *debug {
+		if debug {
 			log.Printf("Handling %s --> %s", nodeID, handlerMapRec.config.MetricName)
 		}
 		err := handler.Handle(*value)
@@ -308,8 +351,8 @@ func createHandler(nodeConfig NodeConfig) (MsgHandler, error) {
 	if metricName == "" {
 		return nil, fmt.Errorf("metric name cannot be empty")
 	}
-	if *promPrefix != "" {
-		metricName = fmt.Sprintf("%s_%s", *promPrefix, metricName)
+	if viper.GetString("prom-prefix") != "" {
+		metricName = fmt.Sprintf("%s_%s", viper.GetString("prom-prefix"), metricName)
 	}
 	g := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: metricName,
@@ -325,7 +368,7 @@ func createHandler(nodeConfig NodeConfig) (MsgHandler, error) {
 		if !ok {
 			return nil, fmt.Errorf("extractBit must be an integer, got %T", nodeConfig.ExtractBit)
 		}
-		handler = handlers.NewOpcuaBitVectorHandler(g, extractBit, *debug)
+		handler = handlers.NewOpcuaBitVectorHandler(g, extractBit, viper.GetBool("debug"))
 	} else {
 		handler = handlers.NewOpcValueHandler(g)
 	}

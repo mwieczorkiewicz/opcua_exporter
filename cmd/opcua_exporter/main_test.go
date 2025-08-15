@@ -60,7 +60,7 @@ func TestHandleMessage(t *testing.T) {
 
 	// Handle a fake message addressed to nodeID1
 	msg := makeTestMessage(nodeID1)
-	handleMessage(&msg, handlerMap)
+	handleMessage(&msg, handlerMap, false)
 
 	// All three nodeName1 handlers should have been called
 	for _, record := range handlerMap[nodeName1] {
