@@ -1,12 +1,10 @@
-opcua_exporter
-==============
+# opcua_exporter
 
 **Enhanced fork of [open-strateos/opcua_exporter](https://github.com/open-strateos/opcua_exporter) with modern improvements**
 
 This is a Prometheus exporter for the [OPC Unified Architecture](https://en.wikipedia.org/wiki/OPC_Unified_Architecture) protocol with significant enhancements:
 
-🚀 Improvements Over Original
------------------------------
+## 🚀 Improvements Over Original
 
 - **Modern Go dependencies** - Updated to Go 1.23+ with latest dependency versions
 - **Unified configuration system** - Powered by [spf13/viper](https://github.com/spf13/viper) for flexible configuration
@@ -15,10 +13,9 @@ This is a Prometheus exporter for the [OPC Unified Architecture](https://en.wiki
 - **Improved maintainability** - Better code organization and comprehensive testing
 
 It uses [gopcua/opcua](https://github.com/gopcua/opcua) to communicate with an OPCUA endpoint, subscribes to
-selected channels, and republishes them as Promtheus metrics on a port of your choice.
+selected channels, and republishes them as Prometheus metrics on a port of your choice.
 
-Usage
------
+## Usage
 
 ```shell
 Usage of opcua_exporter:
@@ -36,8 +33,7 @@ Usage of opcua_exporter:
       --summary-interval duration   How frequently to print an event count summary (default 5m0s)
 ```
 
-Configuration Methods
----------------------
+## Configuration Methods
 
 This exporter supports multiple ways to configure node mappings, in order of precedence:
 
@@ -46,11 +42,7 @@ This exporter supports multiple ways to configure node mappings, in order of pre
 3. **YAML configuration file**
 4. **Legacy config files** (lowest priority)
 
-----------------------------
-
-1. Command Line Flags (NEW)
-
-----------------------------
+### 1. Command Line Flags (NEW)
 
 Configure nodes directly via command line:
 
@@ -65,9 +57,7 @@ Configure nodes directly via command line:
   --node "ns=1;s=CircuitBreakerStates,circuit_breaker_three_tripped,3"
 ```
 
-1. Environment Variables (NEW)
-
--------------------------------;
+### 2. Environment Variables (NEW)
 
 Configure via environment variables with indexed format:
 
@@ -88,9 +78,7 @@ export OPCUA_EXPORTER_NODES_1_EXTRACTBIT="2"
 ./opcua_exporter
 ```
 
-1. YAML Configuration File (ENHANCED)
-
-----------------------------
+### 3. YAML Configuration File (ENHANCED)
 
 Create `opcua_exporter.yaml` in current directory, `$HOME/.opcua_exporter/`, or `/etc/opcua_exporter/`:
 
@@ -113,8 +101,7 @@ nodes:
     extractBit: 2
 ```
 
-1. Legacy Configuration Files
-------------------------------;
+### 4. Legacy Configuration Files
 
 Legacy support for separate node configuration files:
 
@@ -126,8 +113,7 @@ Legacy support for separate node configuration files:
 ./opcua_exporter --config-b64 "$(base64 < nodes.yaml)"
 ```
 
-Environment Variables Reference
---------------------------------
+## Environment Variables Reference
 
 All configuration options can be set via environment variables with the `OPCUA_EXPORTER_` prefix:
 
@@ -145,8 +131,7 @@ All configuration options can be set via environment variables with the `OPCUA_E
 | `OPCUA_EXPORTER_SUMMARY_INTERVAL` | `--summary-interval` | Event count summary frequency | `5m` |
 | `OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE` | `--subscribe-to-time-node` | Subscribe to server time node | `false` |
 
-Node Mapping Environment Variables
------------------------------------
+### Node Mapping Environment Variables
 
 For indexed node mappings, use the format `OPCUA_EXPORTER_NODES_{INDEX}_{FIELD}`:
 
@@ -156,8 +141,7 @@ For indexed node mappings, use the format `OPCUA_EXPORTER_NODES_{INDEX}_{FIELD}`
 
 Supports up to 100 nodes (indices 0-99).
 
-Node Configuration
-------------------
+## Node Configuration
 
 You need to supply a mapping of stringified OPC-UA node names to Prometheus metric names.
 This is necessary because the OPC-UA node strings use `;` and `=` characters to separate
@@ -165,8 +149,7 @@ fields from each other and names from values, while Prometheus metric names must
 the regex `[a-zA-Z_:][a-zA-Z0-9_:]*`. For good advice on Prometheus metric naming, refer
 to the [Prometheus docs](https://prometheus.io/docs/practices/naming/).
 
-Legacy YAML Config File Format
--------------------------------
+### Legacy YAML Config File Format
 
 For legacy compatibility, you can still use separate node config files:
 
@@ -180,8 +163,7 @@ For legacy compatibility, you can still use separate node config files:
   metricName: circuit_breaker_three_tripped
 ```
 
-Bit Vectors
------------
+## Bit Vectors
 
 Some OPC-UA devices send alarm states as binary bit-vector values,
 for example, a 32-bit unsigned integer where each bit represents the state of a circuit breaker.
@@ -190,8 +172,7 @@ If you want to monitor a single bit, you can specify an `extractBit` in any conf
 The exporter will pull just that bit (zero-indexed) from the value of the OPC-UA channel, and export it
 as a 0.0 or 1.0 Prometheus metric value.
 
-Examples
---------
+### Examples
 
 **Command Line:**
 
@@ -214,8 +195,7 @@ nodes:
     extractBit: 5
 ```
 
-Docker Usage
-------------
+## Docker Usage
 
 ```bash
 # Build
