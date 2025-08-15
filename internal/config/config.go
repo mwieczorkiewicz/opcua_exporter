@@ -96,8 +96,11 @@ func Load(configFile string) (*Config, error) {
 
 	// Parse environment variables for node mappings
 	envNodeMappings := parseEnvNodeMappings(v)
+	
+	// Combine mappings with proper precedence: env vars override YAML
+	config.NodeMappings = mergeNodeMappings(config.NodeMappings, envNodeMappings)
+	
 	if len(envNodeMappings) > 0 {
-		config.NodeMappings = append(config.NodeMappings, envNodeMappings...)
 		log.Printf("Loaded %d node mappings from environment variables", len(envNodeMappings))
 	}
 
@@ -146,7 +149,41 @@ func filterValidNodeMappings(mappings []NodeMapping) []NodeMapping {
 	return validMappings
 }
 
-// AddNodeMapping adds a node mapping to the configuration
+// mergeNodeMappings combines two slices of node mappings, with higher priority mappings overriding lower priority ones
+// higherPriority mappings override lowerPriority mappings when metric names match
+func mergeNodeMappings(lowerPriority, higherPriority []NodeMapping) []NodeMapping {
+	// Create a map to track metric names from higher priority source
+	higherPriorityMetrics := make(map[string]NodeMapping)
+	for _, mapping := range higherPriority {
+		if mapping.MetricName != "" {
+			higherPriorityMetrics[mapping.MetricName] = mapping
+		}
+	}
+	
+	var result []NodeMapping
+	
+	// Add lower priority mappings, skipping those overridden by higher priority
+	for _, mapping := range lowerPriority {
+		if _, overridden := higherPriorityMetrics[mapping.MetricName]; !overridden {
+			result = append(result, mapping)
+		} else {
+			log.Printf("Metric mapping '%s' from config file overridden by environment variable", mapping.MetricName)
+		}
+	}
+	
+	// Add all higher priority mappings
+	for _, mapping := range higherPriority {
+		if mapping.MetricName != "" {
+			result = append(result, mapping)
+		}
+	}
+	
+	return result
+}
+
+// AddNodeMapping adds a node mapping to the configuration with highest priority
+// Command-line flags override both YAML and environment variables
 func (c *Config) AddNodeMapping(nodeMapping NodeMapping) {
-	c.NodeMappings = append(c.NodeMappings, nodeMapping)
+	// Command-line flags have highest priority, so they override existing mappings
+	c.NodeMappings = mergeNodeMappings(c.NodeMappings, []NodeMapping{nodeMapping})
 }

@@ -2,17 +2,36 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/efficientgo/e2e"
 	e2edb "github.com/efficientgo/e2e/db"
 	e2emon "github.com/efficientgo/e2e/monitoring"
 	"github.com/stretchr/testify/assert"
 )
+
+// PrometheusResponse represents the response from Prometheus /api/v1/query endpoint
+type PrometheusResponse struct {
+	Status string                 `json:"status"`
+	Data   PrometheusResponseData `json:"data"`
+}
+
+// PrometheusResponseData represents the data section of a Prometheus API response
+type PrometheusResponseData struct {
+	ResultType string                  `json:"resultType"`
+	Result     []PrometheusQueryResult `json:"result"`
+}
+
+// PrometheusQueryResult represents a single query result from Prometheus
+type PrometheusQueryResult struct {
+	Metric map[string]string `json:"metric"`
+	Value  []any             `json:"value"`
+}
 
 // NewPrometheusWithOPCUAExporter creates a new Prometheus instance configured to scrape the OPC UA exporter
 func NewPrometheusWithOPCUAExporter(env e2e.Environment, name string, opcuaExporterEndpoint string) (*e2emon.Prometheus, error) {
@@ -90,57 +109,83 @@ scrape_configs:
 	return prometheus, nil
 }
 
-// QueryMetric queries a specific metric from Prometheus via its HTTP endpoint
-func QueryPrometheusMetric(prometheus *e2emon.Prometheus, ctx context.Context, metric string) (string, error) {
+// QueryPrometheusMetric queries a specific metric from Prometheus via its HTTP endpoint and returns the parsed response
+func QueryPrometheusMetric(ctx context.Context, prometheus *e2emon.Prometheus, metric string) (*PrometheusResponse, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	url := fmt.Sprintf("http://%s/api/v1/query?query=%s", prometheus.Endpoint("http"), metric)
+	url := "http://" + prometheus.Endpoint("http") + "/api/v1/query?query=" + metric
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to query metric: %w", err)
+		return nil, fmt.Errorf("failed to query metric: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return string(body), nil
+	var promResponse PrometheusResponse
+	if err := json.Unmarshal(body, &promResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse prometheus response: %w", err)
+	}
+
+	return &promResponse, nil
 }
 
 // AssertMetricExists asserts that a specific metric exists in Prometheus
-func AssertMetricExists(t assert.TestingT, prometheus *e2emon.Prometheus, ctx context.Context, metricName string) {
-	result, err := QueryPrometheusMetric(prometheus, ctx, metricName)
+func AssertMetricExists(ctx context.Context, t assert.TestingT, prometheus *e2emon.Prometheus, metricName string) {
+	result, err := QueryPrometheusMetric(ctx, prometheus, metricName)
 	assert.NoError(t, err, "Failed to query metric %s", metricName)
-	assert.Contains(t, result, `"status":"success"`, "Metric query should be successful")
-	assert.NotContains(t, result, `"data":{"resultType":"vector","result":[]}`, "Metric %s should have data", metricName)
+	assert.Equal(t, "success", result.Status, "Metric query should be successful")
+	assert.NotEmpty(t, result.Data.Result, "Metric %s should have data", metricName)
 }
 
 // AssertTargetUp asserts that the specified target is up in Prometheus using opcua_server_time metric
-func AssertTargetUp(t assert.TestingT, prometheus *e2emon.Prometheus, ctx context.Context, job string) {
-	result, err := QueryPrometheusMetric(prometheus, ctx, fmt.Sprintf("opcua_server_time"))
-	assert.NoError(t, err, "Failed to query opcua_server_time metric for job %s", job)
-	assert.Contains(t, result, `"value":["`, "opcua_server_time metric should have a value")
-	// The metric should exist and have some timestamp value
-	assert.NotContains(t, result, `"data":{"resultType":"vector","result":[]}`, "opcua_server_time should have data")
+// Uses exponential backoff with proper retry logic
+func AssertTargetUp(ctx context.Context, t assert.TestingT, prometheus *e2emon.Prometheus, job string) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	operation := func() (struct{}, error) {
+		result, err := QueryPrometheusMetric(timeoutCtx, prometheus, "opcua_server_time")
+		if err != nil {
+			return struct{}{}, err
+		}
+		if result.Status != "success" || len(result.Data.Result) == 0 {
+			return struct{}{}, fmt.Errorf("opcua_server_time metric not available for job %s", job)
+		}
+		if len(result.Data.Result[0].Value) == 0 {
+			return struct{}{}, fmt.Errorf("opcua_server_time metric has no value for job %s", job)
+		}
+		return struct{}{}, nil
+	}
+
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = 500 * time.Millisecond
+	bo.MaxInterval = 10 * time.Second
+
+	_, err := backoff.Retry(timeoutCtx, operation, backoff.WithBackOff(bo))
+	if err != nil {
+		assert.Fail(t, "AssertTargetUp failed after exponential backoff retries for job: %s, error: %v", job, err)
+	}
 }
 
 // WaitForMetric waits for a specific metric to appear in Prometheus
-func WaitForMetric(prometheus *e2emon.Prometheus, ctx context.Context, metricName string, timeout time.Duration) error {
+func WaitForMetric(ctx context.Context, prometheus *e2emon.Prometheus, metricName string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -148,11 +193,79 @@ func WaitForMetric(prometheus *e2emon.Prometheus, ctx context.Context, metricNam
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for metric %s", metricName)
 		case <-ticker.C:
-			result, err := QueryPrometheusMetric(prometheus, ctx, metricName)
-			if err == nil && strings.Contains(result, `"status":"success"`) &&
-				!strings.Contains(result, `"data":{"resultType":"vector","result":[]}`) {
+			result, err := QueryPrometheusMetric(ctx, prometheus, metricName)
+			if err == nil && result.Status == "success" && len(result.Data.Result) > 0 {
 				return nil
 			}
 		}
 	}
+}
+
+// WaitForScrapeTarget waits for Prometheus to successfully scrape a target
+func WaitForScrapeTarget(ctx context.Context, prometheus *e2emon.Prometheus, job string, timeout time.Duration) error {
+	return WaitForMetric(ctx, prometheus, fmt.Sprintf("up{job=\"%s\"}", job), timeout)
+}
+
+// NewPrometheusForTestSuite creates a Prometheus instance configured to scrape all test exporters
+func NewPrometheusForTestSuite(env e2e.Environment, name string) (*e2emon.Prometheus, error) {
+	// Create Prometheus using e2edb helper
+	prometheus := e2edb.NewPrometheus(env, name)
+
+	// Create configuration that includes all test exporter targets
+	prometheusConfig := fmt.Sprintf(`
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    prometheus: %s
+
+scrape_configs:
+  - job_name: 'opcua-exporter-basic'
+    static_configs:
+      - targets: ['opcua-exporter-basic:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-content'
+    static_configs:
+      - targets: ['opcua-exporter-content:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-integration'
+    static_configs:
+      - targets: ['opcua-exporter-integration:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-resilience'
+    static_configs:
+      - targets: ['opcua-exporter-resilience:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-flags'
+    static_configs:
+      - targets: ['opcua-exporter-flags:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-env'
+    static_configs:
+      - targets: ['opcua-exporter-env:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-config'
+    static_configs:
+      - targets: ['opcua-exporter-config:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'myself'
+    scrape_interval: 1s
+    scrape_timeout: 1s
+    static_configs:
+    - targets: [%s]
+`, name, prometheus.InternalEndpoint("http"))
+
+	// Set the configuration
+	if err := prometheus.SetConfigEncoded([]byte(prometheusConfig)); err != nil {
+		return nil, fmt.Errorf("failed to set prometheus config: %w", err)
+	}
+
+	return prometheus, nil
 }

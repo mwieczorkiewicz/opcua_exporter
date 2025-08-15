@@ -19,9 +19,16 @@ test:
 	go test -short ./...
 
 # Run e2e tests
+.PHONY: e2e
+e2e:
+	go test -v -timeout 5m ./e2e/...
+
+e2e-nc:
+	go test -v -count=1 -timeout 5m ./e2e/...
+
+# Run e2e tests (legacy alias)
 .PHONY: e2e-test
-e2e-test:
-	go test ./e2e/...
+e2e-test: e2e
 
 # Run all tests
 .PHONY: test-all
@@ -82,7 +89,8 @@ help:
 	@echo "Available targets:"
 	@echo "  build              - Build the Go binary"
 	@echo "  test               - Run unit tests"
-	@echo "  e2e-test          - Run e2e tests"
+	@echo "  e2e               - Run e2e tests with 5m timeout"
+	@echo "  e2e-test          - Run e2e tests (legacy alias for e2e)"
 	@echo "  test-all          - Run all tests"
 	@echo "  docker-build      - Build Docker image"
 	@echo "  docker-buildx     - Build multi-platform Docker image"

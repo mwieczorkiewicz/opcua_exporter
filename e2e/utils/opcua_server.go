@@ -10,8 +10,10 @@ import (
 )
 
 const (
+	// OPCUAServerImage is the Docker image for the test OPC UA server
 	OPCUAServerImage = "mcr.microsoft.com/iot/opc-ua-test-server:2.8"
-	OPCUAServerPort  = 4840
+	// OPCUAServerDefaultPort is the default port for the OPC UA server
+	OPCUAServerDefaultPort = 4840
 )
 
 // OPCUAServer represents a test OPC UA server instance
@@ -19,15 +21,16 @@ type OPCUAServer struct {
 	runnable e2e.Runnable
 }
 
-// NewOPCUAServer creates a new OPC UA test server instance
+// NewOPCUAServer creates a new OPC UA test server instance with proper readiness probe
 func NewOPCUAServer(env e2e.Environment, name string) *OPCUAServer {
 	runnable := env.Runnable(name).
 		WithPorts(map[string]int{
-			"opcua": OPCUAServerPort,
+			"opcua": OPCUAServerDefaultPort,
 		}).
 		Init(e2e.StartOptions{
-			Image:   OPCUAServerImage,
-			Command: e2e.NewCommand("--sample", "--port", fmt.Sprintf("%d", OPCUAServerPort)),
+			Image:     OPCUAServerImage,
+			Command:   e2e.NewCommand("--sample", "--port", fmt.Sprintf("%d", OPCUAServerDefaultPort)),
+			Readiness: e2e.NewTCPReadinessProbe("opcua"),
 		})
 
 	return &OPCUAServer{
@@ -41,11 +44,9 @@ func (s *OPCUAServer) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start OPC UA server: %w", err)
 	}
 
-	// Wait for the server to be fully ready
-	// The OPC UA test server typically takes a few seconds to initialize
-	time.Sleep(5 * time.Second)
-
-	return nil
+	// Additional wait for OPC UA server to fully initialize its endpoints
+	// The readiness probe ensures TCP connectivity, but OPC UA needs more time
+	return waitForTCPPortWithBackoff(s.runnable.Endpoint("opcua"), 10*time.Second)
 }
 
 // Stop stops the OPC UA server
@@ -86,7 +87,6 @@ func (s *OPCUAServer) WaitForReady(ctx context.Context, timeout time.Duration) e
 func (s *OPCUAServer) AssertRunning(t assert.TestingT) {
 	assert.True(t, s.runnable.IsRunning(), "OPC UA server should be running")
 }
-
 
 // GetSimulationTestNodes returns a list of test node configurations for simulation testing
 func (s *OPCUAServer) GetSimulationTestNodes() []TestNode {

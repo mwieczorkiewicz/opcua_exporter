@@ -12,8 +12,10 @@ import (
 )
 
 const (
+	// OPCUAExporterImage is the Docker image for the OPC UA exporter
 	OPCUAExporterImage = "ghcr.io/mwieczorkiewicz/opcua_exporter:latest"
-	OPCUAExporterPort  = 9686
+	// OPCUAExporterDefaultPort is the default port for the OPC UA exporter
+	OPCUAExporterDefaultPort = 9686
 )
 
 // OPCUAExporter represents an OPC UA exporter instance
@@ -34,7 +36,7 @@ type OPCUAExporterConfig struct {
 func NewOPCUAExporter(env e2e.Environment, name string, opcuaServerEndpoint string, testNodes []TestNode) (*OPCUAExporter, error) {
 	// Create the configuration with the provided endpoint and nodes
 	config := OPCUAExporterConfig{
-		Port:                OPCUAExporterPort,
+		Port:                OPCUAExporterDefaultPort,
 		Endpoint:            opcuaServerEndpoint,
 		Debug:               true,
 		SubscribeToTimeNode: true,
@@ -44,7 +46,7 @@ func NewOPCUAExporter(env e2e.Environment, name string, opcuaServerEndpoint stri
 	// Get the future runnable to access its directory
 	futureRunnable := env.Runnable(name).
 		WithPorts(map[string]int{
-			"http": OPCUAExporterPort,
+			"http": OPCUAExporterDefaultPort,
 		}).
 		Future()
 
@@ -66,8 +68,9 @@ func NewOPCUAExporter(env e2e.Environment, name string, opcuaServerEndpoint stri
 		Image: OPCUAExporterImage,
 		Command: e2e.NewCommand(
 			"/opcua_exporter",
-			"--config", filepath.Join(futureRunnable.Dir(), "config.yaml"),
+			"--config", configPath, // Use actual container path (same as host)
 		),
+		Readiness: NewHTTPReadinessProbeWithExponentialBackoff("http", "/metrics", "HTTP", 200, 299, DefaultTestTimeout),
 		EnvVars: map[string]string{
 			// Clear any potential environment variables that might be set
 			"OPCUA_EXPORTER_NODES_0_NODENAME":   "",
@@ -117,7 +120,7 @@ func (e *OPCUAExporter) GetMetricsEndpoint() string {
 // GenerateConfigForNodes generates a YAML configuration string for the given nodes
 func GenerateConfigForNodes(endpoint string, nodes []TestNode) string {
 	config := OPCUAExporterConfig{
-		Port:                OPCUAExporterPort,
+		Port:                OPCUAExporterDefaultPort,
 		Endpoint:            endpoint,
 		Debug:               true,
 		SubscribeToTimeNode: true,
@@ -136,9 +139,9 @@ func GenerateConfigForNodes(endpoint string, nodes []TestNode) string {
 func NewOPCUAExporterWithEnvConfig(env e2e.Environment, name string, opcuaServerEndpoint string, testNodes []TestNode) (*OPCUAExporter, error) {
 	// Build environment variables for the configuration
 	envVars := map[string]string{
-		"OPCUA_EXPORTER_ENDPOINT":              opcuaServerEndpoint,
-		"OPCUA_EXPORTER_PORT":                  fmt.Sprintf("%d", OPCUAExporterPort),
-		"OPCUA_EXPORTER_DEBUG":                 "true",
+		"OPCUA_EXPORTER_ENDPOINT":               opcuaServerEndpoint,
+		"OPCUA_EXPORTER_PORT":                   fmt.Sprintf("%d", OPCUAExporterDefaultPort),
+		"OPCUA_EXPORTER_DEBUG":                  "true",
 		"OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE": "true",
 	}
 
@@ -153,12 +156,13 @@ func NewOPCUAExporterWithEnvConfig(env e2e.Environment, name string, opcuaServer
 
 	runnable := env.Runnable(name).
 		WithPorts(map[string]int{
-			"http": OPCUAExporterPort,
+			"http": OPCUAExporterDefaultPort,
 		}).
 		Init(e2e.StartOptions{
-			Image:   OPCUAExporterImage,
-			Command: e2e.NewCommand("/opcua_exporter"),
-			EnvVars: envVars,
+			Image:     OPCUAExporterImage,
+			Command:   e2e.NewCommand("/opcua_exporter"), // No --config flag = use env vars only
+			Readiness: e2e.NewHTTPReadinessProbe("http", "/metrics", 200, 299),
+			EnvVars:   envVars,
 		})
 
 	return &OPCUAExporter{
@@ -170,7 +174,7 @@ func NewOPCUAExporterWithEnvConfig(env e2e.Environment, name string, opcuaServer
 func NewOPCUAExporterWithYAMLConfig(env e2e.Environment, name string, opcuaServerEndpoint string, testNodes []TestNode) (*OPCUAExporter, error) {
 	// Create the configuration
 	config := OPCUAExporterConfig{
-		Port:                OPCUAExporterPort,
+		Port:                OPCUAExporterDefaultPort,
 		Endpoint:            opcuaServerEndpoint,
 		Debug:               true,
 		SubscribeToTimeNode: true,
@@ -180,7 +184,7 @@ func NewOPCUAExporterWithYAMLConfig(env e2e.Environment, name string, opcuaServe
 	// Get the future runnable to access its directory
 	futureRunnable := env.Runnable(name).
 		WithPorts(map[string]int{
-			"http": OPCUAExporterPort,
+			"http": OPCUAExporterDefaultPort,
 		}).
 		Future()
 
@@ -201,8 +205,9 @@ func NewOPCUAExporterWithYAMLConfig(env e2e.Environment, name string, opcuaServe
 		Image: OPCUAExporterImage,
 		Command: e2e.NewCommand(
 			"/opcua_exporter",
-			"--config", "/shared/simulation_config.yaml",
+			"--config", configPath, // Use actual container path (same as host)
 		),
+		Readiness: e2e.NewHTTPReadinessProbe("http", "/metrics", 200, 299),
 	})
 
 	return &OPCUAExporter{
@@ -215,7 +220,7 @@ func NewOPCUAExporterWithFlags(env e2e.Environment, name string, opcuaServerEndp
 	// Build command-line arguments for the configuration
 	args := []string{
 		"--endpoint", opcuaServerEndpoint,
-		"--port", fmt.Sprintf("%d", OPCUAExporterPort),
+		"--port", fmt.Sprintf("%d", OPCUAExporterDefaultPort),
 		"--debug",
 		"--subscribe-to-time-node",
 	}
@@ -231,11 +236,12 @@ func NewOPCUAExporterWithFlags(env e2e.Environment, name string, opcuaServerEndp
 
 	runnable := env.Runnable(name).
 		WithPorts(map[string]int{
-			"http": OPCUAExporterPort,
+			"http": OPCUAExporterDefaultPort,
 		}).
 		Init(e2e.StartOptions{
-			Image:   OPCUAExporterImage,
-			Command: e2e.NewCommand("/opcua_exporter", args...),
+			Image:     OPCUAExporterImage,
+			Command:   e2e.NewCommand("/opcua_exporter", args...),
+			Readiness: e2e.NewHTTPReadinessProbe("http", "/metrics", 200, 299),
 		})
 
 	return &OPCUAExporter{
