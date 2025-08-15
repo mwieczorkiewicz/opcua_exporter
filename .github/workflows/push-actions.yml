@@ -14,8 +14,8 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
       - name: test
-        run: go test
+        run: go test ./...
         
       # Not sure if we stand to learn much by running build after test here, but it shouldn't cost much either.
       - name: build 
-        run: go build
+        run: go build ./cmd/opcua_exporter
