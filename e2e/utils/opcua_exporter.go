@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// OPCUAExporterImage is the Docker image for the OPC UA exporter
-	OPCUAExporterImage = "ghcr.io/mwieczorkiewicz/opcua_exporter:latest"
+	// OPCUAExporterDefaultImage is the default Docker image for the OPC UA exporter
+	OPCUAExporterDefaultImage = "ghcr.io/mwieczorkiewicz/opcua_exporter:latest"
 	// OPCUAExporterDefaultPort is the default port for the OPC UA exporter
 	OPCUAExporterDefaultPort = 9686
 	// OPCUAExporterBinaryPath is the path to the OPC UA exporter binary in the container
@@ -21,6 +21,15 @@ const (
 	// MetricsEndpointPath is the path for the metrics endpoint
 	MetricsEndpointPath = "/metrics"
 )
+
+// getOPCUAExporterImage returns the Docker image to use for the OPC UA exporter
+// It checks the OPCUA_EXPORTER_E2E_IMAGE environment variable first, then falls back to the default
+func getOPCUAExporterImage() string {
+	if image := os.Getenv("OPCUA_EXPORTER_E2E_IMAGE"); image != "" {
+		return image
+	}
+	return OPCUAExporterDefaultImage
+}
 
 // OPCUAExporter represents an OPC UA exporter instance
 type OPCUAExporter struct {
@@ -69,7 +78,7 @@ func NewOPCUAExporter(env e2e.Environment, name string, opcuaServerEndpoint stri
 	// Initialize the runnable with the config file path (mounted at the container path)
 	// Clear any environment variables that might interfere with YAML config
 	runnable := futureRunnable.Init(e2e.StartOptions{
-		Image: OPCUAExporterImage,
+		Image: getOPCUAExporterImage(),
 		Command: e2e.NewCommand(
 			OPCUAExporterBinaryPath,
 			"--config", configPath, // Use actual container path (same as host)
@@ -163,7 +172,7 @@ func NewOPCUAExporterWithEnvConfig(env e2e.Environment, name string, opcuaServer
 			"http": OPCUAExporterDefaultPort,
 		}).
 		Init(e2e.StartOptions{
-			Image:     OPCUAExporterImage,
+			Image:     getOPCUAExporterImage(),
 			Command:   e2e.NewCommand(OPCUAExporterBinaryPath), // No --config flag = use env vars only
 			Readiness: e2e.NewHTTPReadinessProbe("http", MetricsEndpointPath, 200, 299),
 			EnvVars:   envVars,
@@ -206,7 +215,7 @@ func NewOPCUAExporterWithYAMLConfig(env e2e.Environment, name string, opcuaServe
 
 	// Initialize the runnable with the config file path
 	runnable := futureRunnable.Init(e2e.StartOptions{
-		Image: OPCUAExporterImage,
+		Image: getOPCUAExporterImage(),
 		Command: e2e.NewCommand(
 			OPCUAExporterBinaryPath,
 			"--config", configPath, // Use actual container path (same as host)
@@ -243,7 +252,7 @@ func NewOPCUAExporterWithFlags(env e2e.Environment, name string, opcuaServerEndp
 			"http": OPCUAExporterDefaultPort,
 		}).
 		Init(e2e.StartOptions{
-			Image:     OPCUAExporterImage,
+			Image:     getOPCUAExporterImage(),
 			Command:   e2e.NewCommand(OPCUAExporterBinaryPath, args...),
 			Readiness: e2e.NewHTTPReadinessProbe("http", MetricsEndpointPath, 200, 299),
 		})

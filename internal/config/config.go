@@ -68,6 +68,7 @@ func Load(configFile string) (*Config, error) {
 	v.BindEnv("subscribe-to-time-node", "OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE")
 
 	// Support indexed environment variables for node mappings
+	// Bind up to a reasonable limit, but parseEnvNodeMappings will stop early
 	for i := 0; i < 100; i++ {
 		v.BindEnv(fmt.Sprintf("nodes.%d.nodeName", i), fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_NODENAME", i))
 		v.BindEnv(fmt.Sprintf("nodes.%d.metricName", i), fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_METRICNAME", i))
@@ -111,9 +112,10 @@ func Load(configFile string) (*Config, error) {
 }
 
 // parseEnvNodeMappings extracts node mappings from environment variables
+// Stops parsing when no more sequential mappings are found
 func parseEnvNodeMappings(v *viper.Viper) []NodeMapping {
 	var envNodeMappings []NodeMapping
-	for i := 0; i < 100; i++ {
+	for i := 0; ; i++ {
 		nodeNameKey := fmt.Sprintf("nodes.%d.nodeName", i)
 		metricNameKey := fmt.Sprintf("nodes.%d.metricName", i)
 		extractBitKey := fmt.Sprintf("nodes.%d.extractBit", i)
@@ -121,19 +123,22 @@ func parseEnvNodeMappings(v *viper.Viper) []NodeMapping {
 		nodeName := v.GetString(nodeNameKey)
 		metricName := v.GetString(metricNameKey)
 
-		if nodeName != "" && metricName != "" {
-			nodeMapping := NodeMapping{
-				NodeName:   nodeName,
-				MetricName: metricName,
-			}
-
-			if v.IsSet(extractBitKey) {
-				extractBit := v.GetInt(extractBitKey)
-				nodeMapping.ExtractBit = extractBit
-			}
-
-			envNodeMappings = append(envNodeMappings, nodeMapping)
+		// Stop parsing when we encounter the first missing sequential mapping
+		if nodeName == "" || metricName == "" {
+			break
 		}
+
+		nodeMapping := NodeMapping{
+			NodeName:   nodeName,
+			MetricName: metricName,
+		}
+
+		if v.IsSet(extractBitKey) {
+			extractBit := v.GetInt(extractBitKey)
+			nodeMapping.ExtractBit = extractBit
+		}
+
+		envNodeMappings = append(envNodeMappings, nodeMapping)
 	}
 	return envNodeMappings
 }

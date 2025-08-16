@@ -43,7 +43,7 @@ func TestTimeConversionToFloat(t *testing.T) {
 	invalidValue := "not a time"
 	_, err = timeToFloat(invalidValue)
 	assert.Error(t, err)
-	assert.Equal(t, "Expected a time.Time value, but got a string", err.Error())
+	assert.Equal(t, "expected a time.Time value, but got a string", err.Error())
 }
 
 func TestCoerceBooleanValues(t *testing.T) {

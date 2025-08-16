@@ -40,7 +40,7 @@ func (h OpcValueHandler) Handle(v ua.Variant) error {
 func (h OpcValueHandler) FloatValue(v ua.Variant) (float64, error) {
 	switch v.Type() {
 	case ua.TypeIDNull:
-		return 0.0, errors.New("Can not convert null value to float64")
+		return 0.0, errors.New("cannot convert null value to float64")
 	case ua.TypeIDBoolean:
 		return boolToFloat(v.Value())
 	case ua.TypeIDDateTime:
@@ -55,7 +55,7 @@ func timeToFloat(v any) (float64, error) {
 	case time.Time:
 		return float64(t.Unix()), nil
 	default:
-		return 0.0, fmt.Errorf("Expected a time.Time value, but got a %T", v)
+		return 0.0, fmt.Errorf("expected a time.Time value, but got a %T", v)
 	}
 }
 
@@ -74,7 +74,7 @@ func fallbackBooleans(v any) (float64, error) {
 	reflectedVal = reflect.Indirect(reflectedVal)
 
 	if reflectedVal.Type().Kind() != reflect.Bool {
-		return 0.0, fmt.Errorf("Expected a bool value, but got a %s", reflectedVal.Type())
+		return 0.0, fmt.Errorf("expected a bool value, but got a %s", reflectedVal.Type())
 	}
 	b := reflectedVal.Bool()
 	if b {
@@ -84,14 +84,32 @@ func fallbackBooleans(v any) (float64, error) {
 }
 
 func coerceToFloat64(unknown interface{}) (float64, error) {
-	v := reflect.ValueOf(unknown)
-	v = reflect.Indirect(v)
-
-	floatType := reflect.TypeOf(0.0)
-	if v.Type().ConvertibleTo(floatType) {
-		return v.Convert(floatType).Float(), nil
+	switch val := unknown.(type) {
+	case float64:
+		return val, nil
+	case float32:
+		return float64(val), nil
+	case int:
+		return float64(val), nil
+	case int8:
+		return float64(val), nil
+	case int16:
+		return float64(val), nil
+	case int32:
+		return float64(val), nil
+	case int64:
+		return float64(val), nil
+	case uint:
+		return float64(val), nil
+	case uint8:
+		return float64(val), nil
+	case uint16:
+		return float64(val), nil
+	case uint32:
+		return float64(val), nil
+	case uint64:
+		return float64(val), nil
+	default:
+		return 0.0, fmt.Errorf("unsupported type for float conversion: %T", unknown)
 	}
-
-	return 0.0, fmt.Errorf("Unfloatable type: %v", v.Type())
-
 }

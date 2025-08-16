@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,16 +45,16 @@ func TestGetClientError(t *testing.T) {
 	assert.NotNil(t, client)
 }
 
-func TestCreateHandlerValidation(t *testing.T) {
+func TestMetricsRegistryValidation(t *testing.T) {
 	tests := []struct {
 		name      string
-		config    NodeConfig
+		config    config.NodeMapping
 		shouldErr bool
 		errMsg    string
 	}{
 		{
 			name: "valid config",
-			config: NodeConfig{
+			config: config.NodeMapping{
 				NodeName:   "ns=1;s=test",
 				MetricName: "test_metric_unique_1",
 			},
@@ -61,7 +62,7 @@ func TestCreateHandlerValidation(t *testing.T) {
 		},
 		{
 			name: "empty metric name",
-			config: NodeConfig{
+			config: config.NodeMapping{
 				NodeName:   "ns=1;s=test",
 				MetricName: "",
 			},
@@ -70,7 +71,7 @@ func TestCreateHandlerValidation(t *testing.T) {
 		},
 		{
 			name: "invalid extract bit type",
-			config: NodeConfig{
+			config: config.NodeMapping{
 				NodeName:   "ns=1;s=test",
 				MetricName: "test_metric_unique_2",
 				ExtractBit: "invalid",
@@ -82,22 +83,21 @@ func TestCreateHandlerValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, err := createHandler(tt.config)
+			registry := metrics.NewRegistry()
+			err := registry.RegisterNodeMapping(tt.config, "", false)
 			
 			if tt.shouldErr {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errMsg)
-				assert.Nil(t, handler)
 			} else {
 				assert.NoError(t, err)
-				assert.NotNil(t, handler)
 			}
 		})
 	}
 }
 
-func TestCreateMetricsError(t *testing.T) {
-	configs := []NodeConfig{
+func TestMetricsRegistryError(t *testing.T) {
+	configs := []config.NodeMapping{
 		{
 			NodeName:   "ns=1;s=valid",
 			MetricName: "valid_metric",
@@ -108,10 +108,10 @@ func TestCreateMetricsError(t *testing.T) {
 		},
 	}
 
-	handlerMap, err := createMetrics(&configs)
+	registry := metrics.NewRegistry()
+	err := registry.CreateFromNodeMappings(configs, "", false)
 	
 	assert.Error(t, err)
-	assert.Nil(t, handlerMap)
 	assert.Contains(t, err.Error(), "metric name cannot be empty")
 }
 
@@ -124,29 +124,34 @@ func TestConfigValidation(t *testing.T) {
 			},
 		}
 		
-		handlerMap, err := createMetrics(&nodes)
+		registry := metrics.NewRegistry()
+		err := registry.CreateFromNodeMappings(nodes, "", false)
 		require.NoError(t, err)
+		
+		handlerMap := registry.GetHandlerMap()
 		assert.Len(t, handlerMap, 1)
 	})
 	
 	t.Run("duplicate metric registration", func(t *testing.T) {
+		registry := metrics.NewRegistry()
+		
 		// First registration should succeed
-		config1 := NodeConfig{
+		config1 := config.NodeMapping{
 			NodeName:   "ns=1;s=test1",
 			MetricName: "duplicate_metric_test_unique",
 		}
 		
-		_, err := createHandler(config1)
+		err := registry.RegisterNodeMapping(config1, "", false)
 		require.NoError(t, err)
 		
 		// Second registration with same metric name should fail
-		config2 := NodeConfig{
+		config2 := config.NodeMapping{
 			NodeName:   "ns=1;s=test2", 
 			MetricName: "duplicate_metric_test_unique",
 		}
 		
-		_, err = createHandler(config2)
+		err = registry.RegisterNodeMapping(config2, "", false)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to register metric")
+		assert.Contains(t, err.Error(), "duplicate_metric_test_unique")
 	})
 }

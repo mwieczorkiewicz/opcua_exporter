@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
 	"github.com/gopcua/opcua"
 	opcua_debug "github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/monitor"
@@ -19,7 +18,9 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/connection"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/handlers"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -60,24 +61,9 @@ const (
 	subsystemName          = "opcua_exporter"
 	uptimeMetricName       = "uptime_seconds"
 	messageCountMetricName = "message_count"
-	lagDuration            = 10 * time.Millisecond
 	metricsPath            = "/metrics"
 )
 
-// NodeConfig : Structure for representing OPCUA nodes to monitor.
-type NodeConfig = config.NodeMapping
-
-// MsgHandler interface can convert OPC UA Variant objects
-// and emit prometheus metrics
-type MsgHandler = handlers.MsgHandler
-
-// HandlerMap maps OPC UA channel names to MsgHandlers
-type HandlerMap = map[string][]handlerMapRecord
-
-type handlerMapRecord struct {
-	config  NodeConfig
-	handler MsgHandler
-}
 
 var startTime = time.Now()
 var uptimeGauge prometheus.Gauge
@@ -224,44 +210,8 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 }
 
 func setupOPCUAClient(ctx context.Context, cfg *config.Config) (*opcua.Client, error) {
-	client, err := getClient(&cfg.Endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("error creating OPC UA client: %w", err)
-	}
-
-	connectOperation := func() (*opcua.Client, error) {
-		log.Printf("Attempting to connect to OPC UA server at %s", cfg.Endpoint)
-		if err := client.Connect(ctx); err != nil {
-			log.Printf("Connection failed: %v", err)
-			return nil, err // This will trigger a retry
-		}
-		log.Print("Connected successfully to OPC UA server")
-		return client, nil
-	}
-
-	// Configure exponential backoff
-	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.InitialInterval = 1 * time.Second
-	expBackoff.MaxInterval = 30 * time.Second
-	expBackoff.Multiplier = 2.0
-	expBackoff.RandomizationFactor = 0.1
-
-	// Retry connection with exponential backoff
-	notify := func(err error, duration time.Duration) {
-		log.Printf("Connection failed, retrying in %v: %v", duration, err)
-	}
-
-	client, err = backoff.Retry(ctx, connectOperation,
-		backoff.WithBackOff(expBackoff),
-		backoff.WithMaxElapsedTime(5*time.Minute), // Give up after 5 minutes
-		backoff.WithNotify(notify),
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to OPC UA server after retries: %w", err)
-	}
-
-	return client, nil
+	connManager := connection.NewManager(cfg.Endpoint)
+	return connManager.Connect(ctx)
 }
 
 func createHTTPServer(port int) *http.Server {
@@ -323,7 +273,7 @@ func main() {
 
 	if cfg.SubscribeToTimeNode {
 		log.Print("Subscribing to server time node")
-		timeNodeConfig := NodeConfig{
+		timeNodeConfig := config.NodeMapping{
 			NodeName:   timeNode,
 			MetricName: timeNodeMetricName,
 		}
@@ -338,14 +288,14 @@ func main() {
 	app.client = client
 	defer client.Close(ctx)
 
-	metricMap, err := createMetrics(&nodes)
-	if err != nil {
+	metricsRegistry := metrics.NewRegistry()
+	if err := metricsRegistry.CreateFromNodeMappings(nodes, cfg.PromPrefix, cfg.Debug); err != nil {
 		app.shutdown(fmt.Errorf("error creating metrics: %w", err))
 		return
 	}
 
 	go func() {
-		if err := setupMonitor(ctx, client, metricMap, cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.Debug); err != nil {
+		if err := setupMonitor(ctx, client, metricsRegistry.GetHandlerMap(), cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.Debug); err != nil {
 			app.shutdown(fmt.Errorf("error setting up monitor: %w", err))
 		}
 	}()
@@ -366,7 +316,7 @@ func getClient(endpoint *string) (*opcua.Client, error) {
 }
 
 // Subscribe to all the nodes and update the appropriate prometheus metrics on change
-func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerMap, bufferSize int, readTimeout time.Duration, maxTimeouts int, debug bool) error {
+func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[string][]metrics.HandlerRecord, bufferSize int, readTimeout time.Duration, maxTimeouts int, debug bool) error {
 	m, err := monitor.NewNodeMonitor(client)
 	if err != nil {
 		return fmt.Errorf("failed to create node monitor: %w", err)
@@ -386,7 +336,6 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 	}
 	defer cleanup(ctx, sub)
 
-	lag := lagDuration
 	timeoutCount := 0
 	for {
 		uptimeGauge.Set(time.Since(startTime).Seconds())
@@ -409,7 +358,6 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap HandlerM
 
 				handleMessage(msg, handlerMap, debug)
 			}
-			time.Sleep(lag)
 		case <-time.After(readTimeout):
 			timeoutCount++
 			log.Printf("Timeout %d wating for subscription messages", timeoutCount)
@@ -440,64 +388,18 @@ func handleError(c *opcua.Client, sub *monitor.Subscription, err error) {
 	}
 }
 
-func handleMessage(msg *monitor.DataChangeMessage, handlerMap HandlerMap, debug bool) {
+func handleMessage(msg *monitor.DataChangeMessage, handlerMap map[string][]metrics.HandlerRecord, debug bool) {
 	nodeID := msg.NodeID.String()
 	for _, handlerMapRec := range handlerMap[nodeID] {
-		handler := handlerMapRec.handler
+		handler := handlerMapRec.Handler
 		value := msg.Value
 		if debug {
-			log.Printf("Handling %s --> %s", nodeID, handlerMapRec.config.MetricName)
+			log.Printf("Handling %s --> %s", nodeID, handlerMapRec.Config.MetricName)
 		}
 		err := handler.Handle(*value)
 		if err != nil {
-			log.Printf("Error handling opcua value: %s (%s)\n", err, handlerMapRec.config.MetricName)
+			log.Printf("Error handling opcua value: %s (%s)\n", err, handlerMapRec.Config.MetricName)
 		}
 	}
 }
 
-// Initialize a Prometheus gauge for each node. Return them as a map.
-func createMetrics(nodeConfigs *[]NodeConfig) (HandlerMap, error) {
-	handlerMap := make(HandlerMap)
-	for _, nodeConfig := range *nodeConfigs {
-		nodeName := nodeConfig.NodeName
-		metricName := nodeConfig.MetricName
-		handler, err := createHandler(nodeConfig)
-		if err != nil {
-			return nil, fmt.Errorf("error creating handler for %s: %w", metricName, err)
-		}
-		mapRecord := handlerMapRecord{nodeConfig, handler}
-		handlerMap[nodeName] = append(handlerMap[nodeName], mapRecord)
-		log.Printf("Created prom metric %s for OPC UA node %s", metricName, nodeName)
-	}
-
-	return handlerMap, nil
-}
-
-func createHandler(nodeConfig NodeConfig) (MsgHandler, error) {
-	metricName := nodeConfig.MetricName
-	if metricName == "" {
-		return nil, fmt.Errorf("metric name cannot be empty")
-	}
-	if viper.GetString(flagPromPrefix) != "" {
-		metricName = fmt.Sprintf("%s_%s", viper.GetString(flagPromPrefix), metricName)
-	}
-	g := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: metricName,
-		Help: "From OPC UA",
-	})
-	if err := prometheus.Register(g); err != nil {
-		return nil, fmt.Errorf("failed to register metric %s: %w", metricName, err)
-	}
-
-	var handler MsgHandler
-	if nodeConfig.ExtractBit != nil {
-		extractBit, ok := nodeConfig.ExtractBit.(int)
-		if !ok {
-			return nil, fmt.Errorf("extractBit must be an integer, got %T", nodeConfig.ExtractBit)
-		}
-		handler = handlers.NewOpcuaBitVectorHandler(g, extractBit, viper.GetBool("debug"))
-	} else {
-		handler = handlers.NewOpcValueHandler(g)
-	}
-	return handler, nil
-}
