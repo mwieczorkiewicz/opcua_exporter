@@ -15,6 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	prometheusConfigErrorFormat = "failed to set prometheus config: %w"
+)
+
 // PrometheusResponse represents the response from Prometheus /api/v1/query endpoint
 type PrometheusResponse struct {
 	Status string                 `json:"status"`
@@ -66,7 +70,7 @@ scrape_configs:
 
 	// Set the configuration
 	if err := prometheus.SetConfigEncoded([]byte(prometheusConfig)); err != nil {
-		return nil, fmt.Errorf("failed to set prometheus config: %w", err)
+		return nil, fmt.Errorf(prometheusConfigErrorFormat, err)
 	}
 
 	return prometheus, nil
@@ -103,7 +107,7 @@ scrape_configs:
 
 	// Set the configuration
 	if err := prometheus.SetConfigEncoded([]byte(prometheusConfig)); err != nil {
-		return nil, fmt.Errorf("failed to set prometheus config: %w", err)
+		return nil, fmt.Errorf(prometheusConfigErrorFormat, err)
 	}
 
 	return prometheus, nil
@@ -264,7 +268,7 @@ scrape_configs:
 
 	// Set the configuration
 	if err := prometheus.SetConfigEncoded([]byte(prometheusConfig)); err != nil {
-		return nil, fmt.Errorf("failed to set prometheus config: %w", err)
+		return nil, fmt.Errorf(prometheusConfigErrorFormat, err)
 	}
 
 	return prometheus, nil

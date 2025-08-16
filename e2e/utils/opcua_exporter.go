@@ -16,6 +16,10 @@ const (
 	OPCUAExporterImage = "ghcr.io/mwieczorkiewicz/opcua_exporter:latest"
 	// OPCUAExporterDefaultPort is the default port for the OPC UA exporter
 	OPCUAExporterDefaultPort = 9686
+	// OPCUAExporterBinaryPath is the path to the OPC UA exporter binary in the container
+	OPCUAExporterBinaryPath = "/opcua_exporter"
+	// MetricsEndpointPath is the path for the metrics endpoint
+	MetricsEndpointPath = "/metrics"
 )
 
 // OPCUAExporter represents an OPC UA exporter instance
@@ -67,10 +71,10 @@ func NewOPCUAExporter(env e2e.Environment, name string, opcuaServerEndpoint stri
 	runnable := futureRunnable.Init(e2e.StartOptions{
 		Image: OPCUAExporterImage,
 		Command: e2e.NewCommand(
-			"/opcua_exporter",
+			OPCUAExporterBinaryPath,
 			"--config", configPath, // Use actual container path (same as host)
 		),
-		Readiness: NewHTTPReadinessProbeWithExponentialBackoff("http", "/metrics", "HTTP", 200, 299, DefaultTestTimeout),
+		Readiness: NewHTTPReadinessProbeWithExponentialBackoff("http", MetricsEndpointPath, "HTTP", 200, 299, DefaultTestTimeout),
 		EnvVars: map[string]string{
 			// Clear any potential environment variables that might be set
 			"OPCUA_EXPORTER_NODES_0_NODENAME":   "",
@@ -114,7 +118,7 @@ func (e *OPCUAExporter) AssertRunning(t assert.TestingT) {
 
 // GetMetricsEndpoint returns the metrics endpoint URL
 func (e *OPCUAExporter) GetMetricsEndpoint() string {
-	return fmt.Sprintf("http://%s/metrics", e.Endpoint())
+	return fmt.Sprintf("http://%s%s", e.Endpoint(), MetricsEndpointPath)
 }
 
 // GenerateConfigForNodes generates a YAML configuration string for the given nodes
@@ -160,8 +164,8 @@ func NewOPCUAExporterWithEnvConfig(env e2e.Environment, name string, opcuaServer
 		}).
 		Init(e2e.StartOptions{
 			Image:     OPCUAExporterImage,
-			Command:   e2e.NewCommand("/opcua_exporter"), // No --config flag = use env vars only
-			Readiness: e2e.NewHTTPReadinessProbe("http", "/metrics", 200, 299),
+			Command:   e2e.NewCommand(OPCUAExporterBinaryPath), // No --config flag = use env vars only
+			Readiness: e2e.NewHTTPReadinessProbe("http", MetricsEndpointPath, 200, 299),
 			EnvVars:   envVars,
 		})
 
@@ -204,10 +208,10 @@ func NewOPCUAExporterWithYAMLConfig(env e2e.Environment, name string, opcuaServe
 	runnable := futureRunnable.Init(e2e.StartOptions{
 		Image: OPCUAExporterImage,
 		Command: e2e.NewCommand(
-			"/opcua_exporter",
+			OPCUAExporterBinaryPath,
 			"--config", configPath, // Use actual container path (same as host)
 		),
-		Readiness: e2e.NewHTTPReadinessProbe("http", "/metrics", 200, 299),
+		Readiness: e2e.NewHTTPReadinessProbe("http", MetricsEndpointPath, 200, 299),
 	})
 
 	return &OPCUAExporter{
@@ -240,8 +244,8 @@ func NewOPCUAExporterWithFlags(env e2e.Environment, name string, opcuaServerEndp
 		}).
 		Init(e2e.StartOptions{
 			Image:     OPCUAExporterImage,
-			Command:   e2e.NewCommand("/opcua_exporter", args...),
-			Readiness: e2e.NewHTTPReadinessProbe("http", "/metrics", 200, 299),
+			Command:   e2e.NewCommand(OPCUAExporterBinaryPath, args...),
+			Readiness: e2e.NewHTTPReadinessProbe("http", MetricsEndpointPath, 200, 299),
 		})
 
 	return &OPCUAExporter{
