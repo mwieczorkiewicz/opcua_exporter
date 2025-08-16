@@ -10,7 +10,7 @@ This is a Prometheus exporter for the [OPC Unified Architecture](https://en.wiki
 - **Unified configuration system** - Powered by [spf13/viper](https://github.com/spf13/viper) for flexible configuration
 - **Multiple configuration methods** - Command line flags, environment variables, YAML config, and legacy support
 - **Enhanced node mapping** - Direct node configuration without separate files
-- **Improved maintainability** - Better code organization and comprehensive testing
+- **Improved maintainability** - Better code organization and comprehensive testing - including E2E tests.
 
 It uses [gopcua/opcua](https://github.com/gopcua/opcua) to communicate with an OPCUA endpoint, subscribes to
 selected channels, and republishes them as Prometheus metrics on a port of your choice.
