@@ -85,8 +85,8 @@ jobs:
         go:
           - '1.23'
     env:
-      # Use built image from previous job for e2e tests (using commit hash)
-      OPCUA_EXPORTER_E2E_IMAGE: ${{ format('ghcr.io/{0}:{1}-{2}', github.repository_owner, github.event.repository.name, github.ref_name) }}-${{ github.sha }}
+      # Use built image from previous job for e2e tests
+      OPCUA_EXPORTER_E2E_IMAGE: ${{ needs.build-docker.outputs.image-tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

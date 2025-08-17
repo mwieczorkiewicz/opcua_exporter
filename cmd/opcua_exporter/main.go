@@ -42,6 +42,16 @@ const (
 	flagSubscribeToTimeNode = "subscribe-to-time-node"
 	flagNode                = "node"
 	flagConfig              = "config"
+	
+	// Security flag names
+	flagSecurityMode      = "security-mode"
+	flagSecurityPolicy    = "security-policy"
+	flagAuthMode          = "auth-mode"
+	flagUsername          = "username"
+	flagPassword          = "password"
+	flagCertificateFile   = "certificate-file"
+	flagPrivateKeyFile    = "private-key-file"
+	flagAutoTrust         = "auto-trust"
 
 	// Default values
 	defaultPort            = 9686
@@ -148,6 +158,17 @@ func parseFlags() (string, error) {
 	pflag.Duration(flagSummaryInterval, defaultSummaryInterval, "Event count summary interval")
 	pflag.Bool(flagSubscribeToTimeNode, false, "Subscribe to server time node")
 	pflag.StringArray(flagNode, []string{}, "Node mapping: 'nodeId,metricName[,extractBit]'")
+	
+	// Security flags
+	pflag.String(flagSecurityMode, "None", "Security mode: None, Sign, SignAndEncrypt")
+	pflag.String(flagSecurityPolicy, "None", "Security policy: None, Basic128Rsa15, Basic256, Basic256Sha256")
+	pflag.String(flagAuthMode, "Anonymous", "Authentication mode: Anonymous, Username, Certificate")
+	pflag.String(flagUsername, "", "Username for username/password authentication")
+	pflag.String(flagPassword, "", "Password for username/password authentication")
+	pflag.String(flagCertificateFile, "", "Path to client certificate file (PEM format)")
+	pflag.String(flagPrivateKeyFile, "", "Path to client private key file (PEM format)")
+	pflag.Bool(flagAutoTrust, false, "Automatically trust server certificates (INSECURE - for testing only)")
+	
 	pflag.Parse()
 	return configFile, nil
 }
@@ -189,6 +210,32 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 	if viper.IsSet(flagSubscribeToTimeNode) {
 		cfg.SubscribeToTimeNode = viper.GetBool(flagSubscribeToTimeNode)
 	}
+	
+	// Apply security flag overrides
+	if viper.IsSet(flagSecurityMode) {
+		cfg.Security.SecurityMode = viper.GetString(flagSecurityMode)
+	}
+	if viper.IsSet(flagSecurityPolicy) {
+		cfg.Security.SecurityPolicy = viper.GetString(flagSecurityPolicy)
+	}
+	if viper.IsSet(flagAuthMode) {
+		cfg.Security.AuthMode = viper.GetString(flagAuthMode)
+	}
+	if viper.IsSet(flagUsername) {
+		cfg.Security.Username = viper.GetString(flagUsername)
+	}
+	if viper.IsSet(flagPassword) {
+		cfg.Security.Password = viper.GetString(flagPassword)
+	}
+	if viper.IsSet(flagCertificateFile) {
+		cfg.Security.CertificateFile = viper.GetString(flagCertificateFile)
+	}
+	if viper.IsSet(flagPrivateKeyFile) {
+		cfg.Security.PrivateKeyFile = viper.GetString(flagPrivateKeyFile)
+	}
+	if viper.IsSet(flagAutoTrust) {
+		cfg.Security.AutoTrust = viper.GetBool(flagAutoTrust)
+	}
 
 	// Parse node flags and add to configuration
 	nodeFlags := viper.GetStringSlice(flagNode)
@@ -206,7 +253,7 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 }
 
 func setupOPCUAClient(ctx context.Context, cfg *config.Config) (*opcua.Client, error) {
-	connManager := connection.NewManager(cfg.Endpoint)
+	connManager := connection.NewManager(cfg.Endpoint, cfg.Security, cfg.Debug)
 	return connManager.Connect(ctx)
 }
 
