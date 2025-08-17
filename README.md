@@ -197,9 +197,9 @@ Create `opcua_exporter.yaml` in current directory, `$HOME/.opcua_exporter/`, or 
 port: 9090
 endpoint: "opc.tcp://plc.example.com:4840"
 debug: true
-prom-prefix: "factory"
-read-timeout: "10s"
-subscribe-to-time-node: true
+promPrefix: "factory"
+readTimeout: "10s"
+subscribeToTimeNode: true
 
 # Node mappings directly in config file
 nodes:

@@ -21,6 +21,14 @@ type OPCUAServer struct {
 	runnable e2e.Runnable
 }
 
+func extractNetworkNameFromEnv(env e2e.Environment) string {
+	e, ok := env.(*e2e.DockerEnvironment)
+	if !ok {
+		return ""
+	}
+	return e.Name()
+}
+
 // NewOPCUAServer creates a new OPC UA test server instance with proper readiness probe
 func NewOPCUAServer(env e2e.Environment, name string) *OPCUAServer {
 	runnable := env.Runnable(name).
@@ -119,4 +127,33 @@ func (n TestNode) ToConfigString() string {
 		return fmt.Sprintf("nodeName: %s\nmetricName: %s\nextractBit: %d", n.NodeName, n.MetricName, *n.ExtractBit)
 	}
 	return fmt.Sprintf("nodeName: %s\nmetricName: %s", n.NodeName, n.MetricName)
+}
+
+// CertificateInfo holds information about extracted certificates
+type CertificateInfo struct {
+	CertificateFile string // Path to the client certificate .pem file
+	PrivateKeyFile  string // Path to the private key .pem file
+	TrustedCertFile string // Path to the trusted certificate .pem file
+}
+
+// ExtractCertificates extracts and converts OPC UA server certificates from PKCS12 to PEM format
+// Returns paths where PEM certificates are available for the exporter to use
+func (s *OPCUAServer) ExtractCertificates(ctx context.Context, env e2e.Environment) (*CertificateInfo, error) {
+	// Create a certificate manager using Docker Go client
+	certManager, err := NewCertificateManager(s.runnable.Dir())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate manager: %w", err)
+	}
+	defer certManager.Close()
+
+	// Get container ID to use with certificate manager
+	containerID := fmt.Sprintf("%s-%s", extractNetworkNameFromEnv(env), s.runnable.Name())
+
+	// Extract and convert certificates from PKCS12 to PEM format
+	certInfo, err := certManager.ExtractAndConvertCertificates(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract and convert certificates: %w", err)
+	}
+
+	return certInfo, nil
 }

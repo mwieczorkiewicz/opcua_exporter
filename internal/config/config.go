@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/viper"
@@ -16,16 +17,41 @@ type NodeMapping struct {
 	ExtractBit any    `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
 }
 
+// Validate checks if the NodeMapping is valid
+func (n *NodeMapping) Validate() error {
+	if n.NodeName == "" {
+		return fmt.Errorf("nodeName cannot be empty")
+	}
+	if n.MetricName == "" {
+		return fmt.Errorf("metricName cannot be empty")
+	}
+	if n.ExtractBit != nil {
+		switch bit := n.ExtractBit.(type) {
+		case int:
+			if bit < 0 {
+				return fmt.Errorf("extractBit must be non-negative, got %d", bit)
+			}
+		case float64:
+			if bit < 0 || bit != float64(int(bit)) {
+				return fmt.Errorf("extractBit must be a non-negative integer, got %f", bit)
+			}
+		default:
+			return fmt.Errorf("extractBit must be a number, got %T", n.ExtractBit)
+		}
+	}
+	return nil
+}
+
 // SecurityConfig holds security-related configuration for OPC UA connections
 type SecurityConfig struct {
 	// SecurityMode defines the security mode: None, Sign, SignAndEncrypt
-	SecurityMode string `yaml:"securityMode" mapstructure:"security-mode"`
+	SecurityMode string `yaml:"securityMode" mapstructure:"securityMode"`
 
 	// SecurityPolicy defines the security policy: None, Basic128Rsa15, Basic256, Basic256Sha256
-	SecurityPolicy string `yaml:"securityPolicy" mapstructure:"security-policy"`
+	SecurityPolicy string `yaml:"securityPolicy" mapstructure:"securityPolicy"`
 
 	// AuthMode defines authentication mode: Anonymous, Username, Certificate
-	AuthMode string `yaml:"authMode" mapstructure:"auth-mode"`
+	AuthMode string `yaml:"authMode" mapstructure:"authMode"`
 
 	// Username for username/password authentication
 	Username string `yaml:"username,omitempty" mapstructure:"username"`
@@ -34,29 +60,29 @@ type SecurityConfig struct {
 	Password string `yaml:"password,omitempty" mapstructure:"password"`
 
 	// CertificateFile path to the client certificate file (PEM format)
-	CertificateFile string `yaml:"certificateFile,omitempty" mapstructure:"certificate-file"`
+	CertificateFile string `yaml:"certificateFile,omitempty" mapstructure:"certificateFile"`
 
 	// PrivateKeyFile path to the private key file (PEM format)
-	PrivateKeyFile string `yaml:"privateKeyFile,omitempty" mapstructure:"private-key-file"`
+	PrivateKeyFile string `yaml:"privateKeyFile,omitempty" mapstructure:"privateKeyFile"`
 
 	// AutoTrust automatically trusts server certificates (insecure - for testing only)
-	AutoTrust bool `yaml:"autoTrust,omitempty" mapstructure:"auto-trust"`
+	AutoTrust bool `yaml:"autoTrust,omitempty" mapstructure:"autoTrust"`
 }
 
 // Config holds all configuration values for the OPC UA exporter
 type Config struct {
-	Port                int            `mapstructure:"port"`
-	Endpoint            string         `mapstructure:"endpoint"`
-	PromPrefix          string         `mapstructure:"prom-prefix"`
-	ConfigFile          string         `mapstructure:"config"`
-	Debug               bool           `mapstructure:"debug"`
-	ReadTimeout         time.Duration  `mapstructure:"read-timeout"`
-	MaxTimeouts         int            `mapstructure:"max-timeouts"`
-	BufferSize          int            `mapstructure:"buffer-size"`
-	SummaryInterval     time.Duration  `mapstructure:"summary-interval"`
-	SubscribeToTimeNode bool           `mapstructure:"subscribe-to-time-node"`
-	NodeMappings        []NodeMapping  `mapstructure:"nodes"`
-	Security            SecurityConfig `mapstructure:"security"`
+	Port                int            `yaml:"port" mapstructure:"port"`
+	Endpoint            string         `yaml:"endpoint" mapstructure:"endpoint"`
+	PromPrefix          string         `yaml:"promPrefix" mapstructure:"promPrefix"`
+	ConfigFile          string         `yaml:"configFile" mapstructure:"config"`
+	Debug               bool           `yaml:"debug" mapstructure:"debug"`
+	ReadTimeout         time.Duration  `yaml:"readTimeout" mapstructure:"readTimeout"`
+	MaxTimeouts         int            `yaml:"maxTimeouts" mapstructure:"maxTimeouts"`
+	BufferSize          int            `yaml:"bufferSize" mapstructure:"bufferSize"`
+	SummaryInterval     time.Duration  `yaml:"summaryInterval" mapstructure:"summaryInterval"`
+	SubscribeToTimeNode bool           `yaml:"subscribeToTimeNode" mapstructure:"subscribeToTimeNode"`
+	NodeMappings        []NodeMapping  `yaml:"nodes" mapstructure:"nodes"`
+	Security            SecurityConfig `yaml:"security" mapstructure:"security"`
 }
 
 // Load loads configuration from multiple sources in priority order:
@@ -67,143 +93,120 @@ type Config struct {
 func Load(configFile string) (*Config, error) {
 	v := viper.New()
 
+	// Allow empty environment variables to override defaults
+	v.AllowEmptyEnv(true)
+	
 	// Set default values
 	v.SetDefault("port", 9686)
 	v.SetDefault("endpoint", "opc.tcp://localhost:4096")
-	v.SetDefault("prom-prefix", "")
+	v.SetDefault("promPrefix", "")
 	v.SetDefault("debug", false)
-	v.SetDefault("read-timeout", 5*time.Second)
-	v.SetDefault("max-timeouts", 0)
-	v.SetDefault("buffer-size", 64)
-	v.SetDefault("summary-interval", 5*time.Minute)
-	v.SetDefault("subscribe-to-time-node", false)
+	v.SetDefault("readTimeout", 5*time.Second)
+	v.SetDefault("maxTimeouts", 0)
+	v.SetDefault("bufferSize", 64)
+	v.SetDefault("summaryInterval", 5*time.Minute)
+	v.SetDefault("subscribeToTimeNode", false)
 	v.SetDefault("nodes", []NodeMapping{})
 
 	// Set security defaults (Anonymous access, no encryption)
-	v.SetDefault("security.security-mode", "None")
-	v.SetDefault("security.security-policy", "None")
-	v.SetDefault("security.auth-mode", "Anonymous")
-	v.SetDefault("security.auto-trust", false)
+	v.SetDefault("security.securityMode", "None")
+	v.SetDefault("security.securityPolicy", "None")
+	v.SetDefault("security.authMode", "Anonymous")
+	v.SetDefault("security.autoTrust", false)
 
-	// Enable environment variable support
+	// Configure environment variable support
 	v.SetEnvPrefix("OPCUA_EXPORTER")
 	v.AutomaticEnv()
-
-	// Bind environment variables to config keys (much cleaner with SetEnvPrefix)
-	v.BindEnv("port")
-	v.BindEnv("endpoint")
-	v.BindEnv("prom-prefix")
-	v.BindEnv("debug")
-	v.BindEnv("read-timeout")
-	v.BindEnv("max-timeouts")
-	v.BindEnv("buffer-size")
-	v.BindEnv("summary-interval")
-	v.BindEnv("subscribe-to-time-node")
-
-	// Bind security environment variables (explicit binding for non-nested names)
-	v.BindEnv("security.security-mode", "OPCUA_EXPORTER_SECURITY_MODE")
-	v.BindEnv("security.security-policy", "OPCUA_EXPORTER_SECURITY_POLICY")
-	v.BindEnv("security.auth-mode", "OPCUA_EXPORTER_AUTH_MODE")
+	
+	// Bind environment variables explicitly since viper's key replacer is tricky
+	v.BindEnv("port", "OPCUA_EXPORTER_PORT")
+	v.BindEnv("endpoint", "OPCUA_EXPORTER_ENDPOINT")
+	v.BindEnv("promPrefix", "OPCUA_EXPORTER_PROM_PREFIX")
+	v.BindEnv("debug", "OPCUA_EXPORTER_DEBUG")
+	v.BindEnv("readTimeout", "OPCUA_EXPORTER_READ_TIMEOUT")
+	v.BindEnv("maxTimeouts", "OPCUA_EXPORTER_MAX_TIMEOUTS")
+	v.BindEnv("bufferSize", "OPCUA_EXPORTER_BUFFER_SIZE")
+	v.BindEnv("summaryInterval", "OPCUA_EXPORTER_SUMMARY_INTERVAL")
+	v.BindEnv("subscribeToTimeNode", "OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE")
+	
+	// Security settings
+	v.BindEnv("security.securityMode", "OPCUA_EXPORTER_SECURITY_MODE")
+	v.BindEnv("security.securityPolicy", "OPCUA_EXPORTER_SECURITY_POLICY")
+	v.BindEnv("security.authMode", "OPCUA_EXPORTER_AUTH_MODE")
 	v.BindEnv("security.username", "OPCUA_EXPORTER_USERNAME")
 	v.BindEnv("security.password", "OPCUA_EXPORTER_PASSWORD")
-	v.BindEnv("security.certificate-file", "OPCUA_EXPORTER_CERTIFICATE_FILE")
-	v.BindEnv("security.private-key-file", "OPCUA_EXPORTER_PRIVATE_KEY_FILE")
-	v.BindEnv("security.auto-trust", "OPCUA_EXPORTER_AUTO_TRUST")
+	v.BindEnv("security.certificateFile", "OPCUA_EXPORTER_CERTIFICATE_FILE")
+	v.BindEnv("security.privateKeyFile", "OPCUA_EXPORTER_PRIVATE_KEY_FILE")
+	v.BindEnv("security.autoTrust", "OPCUA_EXPORTER_AUTO_TRUST")
 
-	// Support indexed environment variables for node mappings
-	// Bind up to a reasonable limit, but parseEnvNodeMappings will stop early
-	for i := range 100 {
-		v.BindEnv(fmt.Sprintf("nodes.%d.nodeName", i), fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_NODENAME", i))
-		v.BindEnv(fmt.Sprintf("nodes.%d.metricName", i), fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_METRICNAME", i))
-		v.BindEnv(fmt.Sprintf("nodes.%d.extractBit", i), fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_EXTRACTBIT", i))
-	}
-
-	// Load config file if specified
+	// Load configuration file if specified
+	configFileLoaded := false
 	if configFile != "" {
 		v.SetConfigFile(configFile)
 		if err := v.ReadInConfig(); err != nil {
-			// Check if it's a file not found error - if so, warn but continue
-			if os.IsNotExist(err) {
+			// Check if it's a file not found error
+			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+				log.Printf("Warning: config file %s not found, using defaults and environment variables", configFile)
+			} else if os.IsNotExist(err) {
+				// Handle regular file not found errors
 				log.Printf("Warning: config file %s not found, using defaults and environment variables", configFile)
 			} else {
-				return nil, fmt.Errorf("error reading config file %s: %w", configFile, err)
+				return nil, fmt.Errorf("error parsing YAML config file %s: %w", configFile, err)
 			}
 		} else {
 			log.Printf("Loaded configuration from %s", configFile)
+			configFileLoaded = true
 		}
 	}
 
+	// Parse environment variables for node mappings (viper doesn't handle indexed arrays well)
+	envNodeMappings := parseEnvNodeMappings()
+
 	var config Config
-	if err := v.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("error unmarshalling config: %w", err)
-	}
 	
-	// Handle YAML camelCase to kebab-case mapping for security fields
-	// Viper converts all keys to lowercase, so check lowercase variants
-	// Only override if the kebab-case key has default value (meaning env var wasn't set)
-	if v.IsSet("security.securitymode") && v.GetString("security.security-mode") == "None" {
-		config.Security.SecurityMode = v.GetString("security.securitymode")
-	}
-	if v.IsSet("security.securitypolicy") && v.GetString("security.security-policy") == "None" {
-		config.Security.SecurityPolicy = v.GetString("security.securitypolicy")
-	}
-	if v.IsSet("security.authmode") && v.GetString("security.auth-mode") == "Anonymous" {
-		config.Security.AuthMode = v.GetString("security.authmode")
-	}
-	if v.IsSet("security.username") {
-		config.Security.Username = v.GetString("security.username")
-	}
-	if v.IsSet("security.password") {
-		config.Security.Password = v.GetString("security.password")
-	}
-	if v.IsSet("security.certificatefile") && v.GetString("security.certificate-file") == "" {
-		config.Security.CertificateFile = v.GetString("security.certificatefile")
-	}
-	if v.IsSet("security.privatekeyfile") && v.GetString("security.private-key-file") == "" {
-		config.Security.PrivateKeyFile = v.GetString("security.privatekeyfile")
-	}
-	if v.IsSet("security.autotrust") && v.GetBool("security.auto-trust") == false {
-		config.Security.AutoTrust = v.GetBool("security.autotrust")
+	// Unmarshal the configuration
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("error unmarshaling configuration: %w", err)
 	}
 
-	// Parse environment variables for node mappings
-	envNodeMappings := parseEnvNodeMappings(v)
+	// Apply defaults for empty string values in security config (but not for optional fields)
+	applySecurityDefaults(&config)
 
-	// Combine mappings with proper precedence: env vars override YAML
-	config.NodeMappings = mergeNodeMappings(config.NodeMappings, envNodeMappings)
+	// Apply defaults for zero values that should use defaults (only when loading from YAML)
+	if configFileLoaded {
+		applyZeroValueDefaults(&config)
+	}
 
+	// Handle node mappings with proper precedence: env vars completely replace YAML
 	if len(envNodeMappings) > 0 {
+		config.NodeMappings = envNodeMappings
 		log.Printf("Loaded %d node mappings from environment variables", len(envNodeMappings))
 	}
 
-	// Filter out empty node mappings
+	// Validate all node mappings first (this will catch invalid ones before filtering)
+	for i, mapping := range config.NodeMappings {
+		if err := mapping.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid node mapping at index %d: %w", i, err)
+		}
+	}
+	
+	// Filter out empty node mappings (only removes truly empty ones, not invalid ones)
 	config.NodeMappings = filterValidNodeMappings(config.NodeMappings)
-
-	// Ensure security defaults are set if the section is missing or has empty values
-	if config.Security.SecurityMode == "" {
-		config.Security.SecurityMode = "None"
-	}
-	if config.Security.SecurityPolicy == "" {
-		config.Security.SecurityPolicy = "None"
-	}
-	if config.Security.AuthMode == "" {
-		config.Security.AuthMode = "Anonymous"
-	}
 
 	return &config, nil
 }
 
 // parseEnvNodeMappings extracts node mappings from environment variables
 // Stops parsing when no more sequential mappings are found
-func parseEnvNodeMappings(v *viper.Viper) []NodeMapping {
+func parseEnvNodeMappings() []NodeMapping {
 	var envNodeMappings []NodeMapping
 	for i := 0; ; i++ {
-		nodeNameKey := fmt.Sprintf("nodes.%d.nodeName", i)
-		metricNameKey := fmt.Sprintf("nodes.%d.metricName", i)
-		extractBitKey := fmt.Sprintf("nodes.%d.extractBit", i)
+		nodeNameEnv := fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_NODENAME", i)
+		metricNameEnv := fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_METRICNAME", i)
+		extractBitEnv := fmt.Sprintf("OPCUA_EXPORTER_NODES_%d_EXTRACTBIT", i)
 
-		nodeName := v.GetString(nodeNameKey)
-		metricName := v.GetString(metricNameKey)
+		nodeName := os.Getenv(nodeNameEnv)
+		metricName := os.Getenv(metricNameEnv)
 
 		// Stop parsing when we encounter the first missing sequential mapping
 		if nodeName == "" || metricName == "" {
@@ -215,9 +218,10 @@ func parseEnvNodeMappings(v *viper.Viper) []NodeMapping {
 			MetricName: metricName,
 		}
 
-		if v.IsSet(extractBitKey) {
-			extractBit := v.GetInt(extractBitKey)
-			nodeMapping.ExtractBit = extractBit
+		if extractBitStr := os.Getenv(extractBitEnv); extractBitStr != "" {
+			if extractBit, err := strconv.Atoi(extractBitStr); err == nil {
+				nodeMapping.ExtractBit = extractBit
+			}
 		}
 
 		envNodeMappings = append(envNodeMappings, nodeMapping)
@@ -236,41 +240,48 @@ func filterValidNodeMappings(mappings []NodeMapping) []NodeMapping {
 	return validMappings
 }
 
-// mergeNodeMappings combines two slices of node mappings, with higher priority mappings overriding lower priority ones
-// higherPriority mappings override lowerPriority mappings when metric names match
-func mergeNodeMappings(lowerPriority, higherPriority []NodeMapping) []NodeMapping {
-	// Create a map to track metric names from higher priority source
-	higherPriorityMetrics := make(map[string]NodeMapping)
-	for _, mapping := range higherPriority {
-		if mapping.MetricName != "" {
-			higherPriorityMetrics[mapping.MetricName] = mapping
-		}
+
+// applySecurityDefaults applies default values for empty security configuration strings
+// Only applies defaults to required fields, leaves optional fields empty
+func applySecurityDefaults(config *Config) {
+	if config.Security.SecurityMode == "" {
+		config.Security.SecurityMode = "None"
 	}
-
-	var result []NodeMapping
-
-	// Add lower priority mappings, skipping those overridden by higher priority
-	for _, mapping := range lowerPriority {
-		if _, overridden := higherPriorityMetrics[mapping.MetricName]; !overridden {
-			result = append(result, mapping)
-		} else {
-			log.Printf("Metric mapping '%s' from config file overridden by environment variable", mapping.MetricName)
-		}
+	if config.Security.SecurityPolicy == "" {
+		config.Security.SecurityPolicy = "None"
 	}
-
-	// Add all higher priority mappings
-	for _, mapping := range higherPriority {
-		if mapping.MetricName != "" {
-			result = append(result, mapping)
-		}
+	if config.Security.AuthMode == "" {
+		config.Security.AuthMode = "Anonymous"
 	}
+	// Optional fields (username, password, certificateFile, privateKeyFile) are left as-is
+}
 
-	return result
+// applyZeroValueDefaults applies default values for zero values that should use defaults
+// This handles cases where YAML explicitly sets values to 0 but we want to use defaults
+func applyZeroValueDefaults(config *Config) {
+	if config.Port == 0 {
+		config.Port = 9686
+	}
+	if config.BufferSize == 0 {
+		config.BufferSize = 64
+	}
+	// MaxTimeouts = 0 is valid and means no timeout limit, so we don't change it
 }
 
 // AddNodeMapping adds a node mapping to the configuration with highest priority
-// Command-line flags override both YAML and environment variables
+// Command-line flags override both YAML and environment variables by metric name
 func (c *Config) AddNodeMapping(nodeMapping NodeMapping) {
-	// Command-line flags have highest priority, so they override existing mappings
-	c.NodeMappings = mergeNodeMappings(c.NodeMappings, []NodeMapping{nodeMapping})
+	// Remove any existing mapping with the same metric name
+	var result []NodeMapping
+	for _, mapping := range c.NodeMappings {
+		if mapping.MetricName != nodeMapping.MetricName {
+			result = append(result, mapping)
+		} else {
+			log.Printf("Metric mapping '%s' overridden by command-line flag", mapping.MetricName)
+		}
+	}
+	
+	// Add the new mapping
+	result = append(result, nodeMapping)
+	c.NodeMappings = result
 }

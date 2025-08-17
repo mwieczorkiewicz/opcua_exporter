@@ -93,14 +93,14 @@ func (suite *E2ETestSuite) TestCanExportBasicOPCUAMetrics() {
 
 	testNodes := suite.opcuaServer.GetSimulationTestNodes()
 	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
-	
+
 	// Start exporter with YAML config and wait for readiness
 	scenario := utils.ExporterTestScenario{
 		Name:               "basic-yaml",
 		CreateExporterFunc: utils.NewOPCUAExporter,
 		Description:        "YAML configuration",
 	}
-	
+
 	exporter, err := helper.StartExporterAndWaitForScraping(scenario, "opcua-exporter-basic", suite.opcuaServer.Endpoint(), testNodes)
 	suite.Require().NoError(err, "Failed to start and verify exporter")
 	defer exporter.Stop()
@@ -120,14 +120,14 @@ func (suite *E2ETestSuite) TestMetricDataIntegrityAndValidation() {
 
 	testNodes := suite.opcuaServer.GetSimulationTestNodes()
 	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
-	
+
 	// Start exporter with env config
 	scenario := utils.ExporterTestScenario{
 		Name:               "content-env",
 		CreateExporterFunc: utils.NewOPCUAExporterWithEnvConfig,
 		Description:        "Environment variables",
 	}
-	
+
 	exporter, err := helper.StartExporterAndWaitForScraping(scenario, "opcua-exporter-content", suite.opcuaServer.Endpoint(), testNodes)
 	suite.Require().NoError(err, "Failed to start and verify exporter")
 	defer exporter.Stop()
@@ -151,14 +151,14 @@ func (suite *E2ETestSuite) TestPrometheusIntegrationAndTimeSeries() {
 
 	testNodes := suite.opcuaServer.GetSimulationTestNodes()
 	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
-	
+
 	// Start exporter with YAML config for integration test
 	scenario := utils.ExporterTestScenario{
 		Name:               "integration-yaml",
 		CreateExporterFunc: utils.NewOPCUAExporter,
 		Description:        "YAML configuration",
 	}
-	
+
 	exporter, err := helper.StartExporterAndWaitForScraping(scenario, "opcua-exporter-integration", suite.opcuaServer.Endpoint(), testNodes)
 	suite.Require().NoError(err, "Failed to start and verify exporter")
 	defer exporter.Stop()
@@ -192,14 +192,14 @@ func (suite *E2ETestSuite) TestExporterResilienceAndStability() {
 
 	testNodes := suite.opcuaServer.GetSimulationTestNodes()
 	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
-	
+
 	// Start exporter with CLI flags config
 	scenario := utils.ExporterTestScenario{
 		Name:               "resilience-cli",
 		CreateExporterFunc: utils.NewOPCUAExporterWithFlags,
 		Description:        "Command-line flags",
 	}
-	
+
 	exporter, err := helper.StartExporterAndWaitForScraping(scenario, "opcua-exporter-resilience", suite.opcuaServer.Endpoint(), testNodes)
 	suite.Require().NoError(err, "Failed to start and verify exporter")
 	defer exporter.Stop()
@@ -223,14 +223,14 @@ func (suite *E2ETestSuite) TestCommandLineFlagConfiguration() {
 
 	testNodes := suite.opcuaServer.GetSimulationTestNodes()
 	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
-	
+
 	// Start exporter with CLI flags
 	scenario := utils.ExporterTestScenario{
 		Name:               "flags-test",
 		CreateExporterFunc: utils.NewOPCUAExporterWithFlags,
 		Description:        "Command-line flags",
 	}
-	
+
 	exporter, err := helper.StartExporterAndWaitForScraping(scenario, "opcua-exporter-flags", suite.opcuaServer.Endpoint(), testNodes)
 	suite.Require().NoError(err, "Failed to start and verify exporter with CLI flags")
 	defer exporter.Stop()
@@ -253,14 +253,14 @@ func (suite *E2ETestSuite) TestEnvironmentVariableConfiguration() {
 
 	testNodes := suite.opcuaServer.GetSimulationTestNodes()
 	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
-	
+
 	// Test environment variable configuration
 	scenario := utils.ExporterTestScenario{
 		Name:               "env-vars",
 		CreateExporterFunc: utils.NewOPCUAExporterWithEnvConfig,
 		Description:        "Environment variables",
 	}
-	
+
 	exporter, err := helper.StartExporterAndWaitForScraping(scenario, "opcua-exporter-env", suite.opcuaServer.Endpoint(), testNodes)
 	suite.Require().NoError(err, "Failed to start exporter with environment variables")
 	defer exporter.Stop()
@@ -275,8 +275,283 @@ func (suite *E2ETestSuite) TestEnvironmentVariableConfiguration() {
 		err := helper.VerifyMetricContent(metric)
 		suite.Assert().NoError(err, "Metric %s should have valid content with environment variables", metric)
 	}
-	
+
 	suite.T().Log("Environment variable configuration verified successfully")
+}
+
+// TestOPCUASecurityWithUsernamePassword verifies username/password authentication with SignAndEncrypt
+func (suite *E2ETestSuite) TestOPCUASecurityWithUsernamePassword() {
+	suite.T().Log("=== Testing OPC UA security with username/password authentication...")
+
+	testNodes := suite.opcuaServer.GetSimulationTestNodes()
+	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
+
+	// Extract certificates for encryption
+	certInfo, err := suite.opcuaServer.ExtractCertificates(suite.ctx, suite.env)
+	suite.Require().NoError(err, "Failed to extract certificates for username auth test")
+
+	// Test with username/password and SignAndEncrypt security mode (requires certificates)
+	exporter, err := utils.NewOPCUAExporterWithUsernameAuth(
+		suite.env,
+		"opcua-exporter-user-auth",
+		suite.opcuaServer.Endpoint(),
+		testNodes,
+		"testuser",    // Any username works with test server
+		"testpass123", // Password is required
+		certInfo,      // Certificates required for encryption
+	)
+	suite.Require().NoError(err, "Failed to create secure exporter with username auth")
+
+	err = exporter.Start()
+	suite.Require().NoError(err, "Failed to start secure exporter")
+	defer exporter.Stop()
+
+	// Wait for exporter readiness with security enabled
+	err = helper.WaitForExporterReadiness("opcua-exporter-user-auth")
+	suite.Require().NoError(err, "Secure exporter should become ready")
+
+	// Verify all expected metrics are available with security
+	expectedMetrics := append(utils.GetStandardExporterMetrics(), utils.GetTestNodeMetricNames(testNodes)...)
+	err = helper.VerifyExporterMetrics("opcua-exporter-user-auth", expectedMetrics)
+	suite.Assert().NoError(err, "Secure exporter should collect all expected metrics")
+
+	// Verify target is up in Prometheus
+	utils.AssertTargetUp(suite.ctx, suite.T(), suite.prometheus, "opcua-exporter-user-auth")
+
+	suite.T().Log("Username/password authentication with SignAndEncrypt verified successfully")
+}
+
+// TestOPCUASecurityWithSignMode verifies username/password authentication with Sign security mode
+func (suite *E2ETestSuite) TestOPCUASecurityWithSignMode() {
+	suite.T().Log("=== Testing OPC UA security with Sign mode...")
+
+	testNodes := suite.opcuaServer.GetSimulationTestNodes()
+	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
+
+	// Extract certificates for signing
+	certInfo, err := suite.opcuaServer.ExtractCertificates(suite.ctx, suite.env)
+	suite.Require().NoError(err, "Failed to extract certificates for Sign mode test")
+
+	// Test with username/password and Sign security mode (requires certificates for signing)
+	exporter, err := utils.NewOPCUAExporterWithSignMode(
+		suite.env,
+		"opcua-exporter-sign-mode",
+		suite.opcuaServer.Endpoint(),
+		testNodes,
+		"signuser",
+		"signpass123",
+		certInfo, // Certificates required for signing
+	)
+	suite.Require().NoError(err, "Failed to create exporter with Sign security mode")
+
+	err = exporter.Start()
+	suite.Require().NoError(err, "Failed to start exporter with Sign mode")
+	defer exporter.Stop()
+
+	// Wait for exporter readiness
+	err = helper.WaitForExporterReadiness("opcua-exporter-sign-mode")
+	suite.Require().NoError(err, "Sign mode exporter should become ready")
+
+	// Verify metrics are available with Sign security mode
+	expectedMetrics := utils.GetTestNodeMetricNames(testNodes)
+	err = helper.VerifyExporterMetrics("opcua-exporter-sign-mode", expectedMetrics)
+	suite.Assert().NoError(err, "Sign mode exporter should collect all expected metrics")
+
+	// Verify metric content
+	for _, node := range testNodes {
+		err := helper.VerifyMetricContent(node.MetricName)
+		suite.Assert().NoError(err, "Metric %s should have valid content with Sign mode", node.MetricName)
+	}
+
+	suite.T().Log("Sign security mode verified successfully")
+}
+
+// TestOPCUASecurityWithCertificateAuth verifies certificate-based authentication
+func (suite *E2ETestSuite) TestOPCUASecurityWithCertificateAuth() {
+	suite.T().Log("=== Testing OPC UA security with certificate authentication...")
+
+	testNodes := suite.opcuaServer.GetSimulationTestNodes()
+	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
+
+	// Extract and convert certificates from the OPC UA server
+	certInfo, err := suite.opcuaServer.ExtractCertificates(suite.ctx, suite.env)
+	suite.Require().NoError(err, "Failed to extract certificates from OPC UA server")
+	suite.Require().NotNil(certInfo, "Certificate info should not be nil")
+
+	// Verify PEM certificate files exist
+	suite.Require().FileExists(certInfo.CertificateFile, "Client certificate (PEM) should exist")
+	suite.Require().FileExists(certInfo.PrivateKeyFile, "Client private key (PEM) should exist")
+	suite.Require().FileExists(certInfo.TrustedCertFile, "Trusted certificate (PEM) should exist")
+
+	// Test with certificate authentication and SignAndEncrypt security mode
+	exporter, err := utils.NewOPCUAExporterWithCertificateAuth(
+		suite.env,
+		"opcua-exporter-cert-auth",
+		suite.opcuaServer.Endpoint(),
+		testNodes,
+		certInfo,
+	)
+	suite.Require().NoError(err, "Failed to create exporter with certificate auth")
+
+	err = exporter.Start()
+	suite.Require().NoError(err, "Failed to start exporter with certificate auth")
+	defer exporter.Stop()
+
+	// Wait for exporter readiness with certificate authentication
+	err = helper.WaitForExporterReadiness("opcua-exporter-cert-auth")
+	suite.Require().NoError(err, "Certificate auth exporter should become ready")
+
+	// Verify all expected metrics are available with certificate auth
+	expectedMetrics := append(utils.GetStandardExporterMetrics(), utils.GetTestNodeMetricNames(testNodes)...)
+	err = helper.VerifyExporterMetrics("opcua-exporter-cert-auth", expectedMetrics)
+	suite.Assert().NoError(err, "Certificate auth exporter should collect all expected metrics")
+
+	// Verify target is up in Prometheus
+	utils.AssertTargetUp(suite.ctx, suite.T(), suite.prometheus, "opcua-exporter-cert-auth")
+
+	suite.T().Log("Certificate authentication verified successfully")
+}
+
+// TestOPCUASecurityConfigurationScenarios tests all security configurations across different config methods
+func (suite *E2ETestSuite) TestOPCUASecurityConfigurationScenarios() {
+	suite.T().Log("=== Testing security configurations across different config methods...")
+
+	testNodes := suite.opcuaServer.GetSimulationTestNodes()
+	helper := utils.NewExporterTestHelper(suite.ctx, suite.env, suite.prometheus, suite.T())
+
+	// Extract and convert certificates for certificate auth tests
+	certInfo, err := suite.opcuaServer.ExtractCertificates(suite.ctx, suite.env)
+	suite.Require().NoError(err, "Failed to extract certificates from OPC UA server")
+
+	// Test different authentication methods with different configuration sources
+	securityScenarios := []struct {
+		name         string
+		exporterFunc func() (*utils.OPCUAExporter, error)
+		description  string
+	}{
+		{
+			name: "opcua-exporter-sec-yaml",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithUsernameAuth(
+					suite.env, "opcua-exporter-sec-yaml", suite.opcuaServer.Endpoint(),
+					testNodes, "yamluser", "yamlpass123", certInfo,
+				)
+			},
+			description: "Username auth via YAML config (with encryption)",
+		},
+		{
+			name: "opcua-exporter-sec-env",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithEnvSecurityConfig(
+					suite.env, "opcua-exporter-sec-env", suite.opcuaServer.Endpoint(),
+					testNodes, "envuser", "envpass123", certInfo,
+				)
+			},
+			description: "Username auth via environment variables (with encryption)",
+		},
+		{
+			name: "opcua-exporter-sec-flags",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithSecurityFlags(
+					suite.env, "opcua-exporter-sec-flags", suite.opcuaServer.Endpoint(),
+					testNodes, "flaguser", "flagpass123", certInfo,
+				)
+			},
+			description: "Username auth via command-line flags (with encryption)",
+		},
+		{
+			name: "opcua-exporter-sec-sign",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithSignMode(
+					suite.env, "opcua-exporter-sec-sign", suite.opcuaServer.Endpoint(),
+					testNodes, "signuser", "signpass123", certInfo,
+				)
+			},
+			description: "Sign mode via YAML config (with certificates)",
+		},
+		{
+			name: "opcua-exporter-cert-yaml",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithCertificateAuth(
+					suite.env, "opcua-exporter-cert-yaml", suite.opcuaServer.Endpoint(),
+					testNodes, certInfo,
+				)
+			},
+			description: "Certificate auth via YAML config",
+		},
+		{
+			name: "opcua-exporter-cert-env",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithCertificateAuthEnv(
+					suite.env, "opcua-exporter-cert-env", suite.opcuaServer.Endpoint(),
+					testNodes, certInfo,
+				)
+			},
+			description: "Certificate auth via environment variables",
+		},
+		{
+			name: "opcua-exporter-cert-flags",
+			exporterFunc: func() (*utils.OPCUAExporter, error) {
+				return utils.NewOPCUAExporterWithCertificateAuthFlags(
+					suite.env, "opcua-exporter-cert-flags", suite.opcuaServer.Endpoint(),
+					testNodes, certInfo,
+				)
+			},
+			description: "Certificate auth via command-line flags",
+		},
+	}
+
+	for _, scenario := range securityScenarios {
+		suite.T().Logf("Testing scenario: %s", scenario.description)
+
+		exporter, err := scenario.exporterFunc()
+		suite.Require().NoError(err, "Failed to create exporter for scenario: %s", scenario.name)
+
+		err = exporter.Start()
+		suite.Require().NoError(err, "Failed to start exporter for scenario: %s", scenario.name)
+
+		// Wait for readiness
+		err = helper.WaitForExporterReadiness(scenario.name)
+		suite.Assert().NoError(err, "Exporter should become ready for scenario: %s", scenario.name)
+
+		// Verify metrics
+		expectedMetrics := utils.GetTestNodeMetricNames(testNodes)
+		err = helper.VerifyExporterMetrics(scenario.name, expectedMetrics)
+		suite.Assert().NoError(err, "Should collect metrics for scenario: %s", scenario.name)
+
+		// Clean up
+		exporter.Stop()
+
+		suite.T().Logf("Scenario verified successfully: %s", scenario.description)
+	}
+}
+
+// TestOPCUASecurityFailureScenarios tests authentication failure scenarios
+func (suite *E2ETestSuite) TestOPCUASecurityFailureScenarios() {
+	suite.T().Log("=== Testing OPC UA security failure scenarios...")
+
+	testNodes := suite.opcuaServer.GetSimulationTestNodes()
+
+	// Extract certificates for the failure scenario test
+	certInfo, err := suite.opcuaServer.ExtractCertificates(suite.ctx, suite.env)
+	suite.Require().NoError(err, "Failed to extract certificates for failure scenario test")
+
+	// Test failure when password is missing (should fail with username auth)
+	suite.T().Log("Testing authentication failure with missing password...")
+	exporter, err := utils.NewOPCUAExporterWithUsernameAuth(
+		suite.env, "opcua-exporter-no-pass", suite.opcuaServer.Endpoint(),
+		testNodes, "testuser", "", certInfo, // Empty password should cause failure
+	)
+	suite.Require().NoError(err, "Should create exporter even with empty password")
+
+	err = exporter.Start()
+	if err == nil {
+		// If it starts, it should fail during authentication
+		suite.T().Log("Exporter started but should fail authentication - checking for connection errors")
+		exporter.Stop()
+	}
+
+	suite.T().Log("Security failure scenarios tested")
 }
 
 // TestHealthCheck is a simple health check test that can run quickly

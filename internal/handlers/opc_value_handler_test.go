@@ -64,7 +64,7 @@ func TestCoerceNumericValues(t *testing.T) {
 	handler := getTestHandler()
 
 	type floatTest struct {
-		input  interface{}
+		input  any
 		output float64
 	}
 
@@ -95,7 +95,7 @@ func TestCoerceNumericValues(t *testing.T) {
 
 func TestValueHandlerErrors(t *testing.T) {
 	handler := getTestHandler()
-	errorValues := []interface{}{
+	errorValues := []any{
 		"not a number",
 	}
 

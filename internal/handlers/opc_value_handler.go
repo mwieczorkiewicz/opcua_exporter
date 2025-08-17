@@ -83,7 +83,7 @@ func fallbackBooleans(v any) (float64, error) {
 	return 0.0, nil
 }
 
-func coerceToFloat64(unknown interface{}) (float64, error) {
+func coerceToFloat64(unknown any) (float64, error) {
 	switch val := unknown.(type) {
 	case float64:
 		return val, nil

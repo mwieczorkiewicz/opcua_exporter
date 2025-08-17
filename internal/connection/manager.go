@@ -8,6 +8,7 @@ import (
 
 	"github.com/cenkalti/backoff/v5"
 	"github.com/gopcua/opcua"
+	"github.com/gopcua/opcua/ua"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/errors"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/security"
@@ -34,38 +35,30 @@ func NewManager(endpoint string, securityConfig config.SecurityConfig, debug boo
 func (m *Manager) Connect(ctx context.Context) (*opcua.Client, error) {
 	connectOperation := func() (*opcua.Client, error) {
 		log.Printf("Attempting to connect to OPC UA server at %s", m.endpoint)
-		
+
 		// Validate security configuration
 		if err := m.validateSecurityConfig(); err != nil {
 			return nil, backoff.Permanent(errors.NewConnectionError(m.endpoint, fmt.Errorf("security configuration validation failed: %w", err)))
 		}
-		
-		// Create client options based on security configuration
-		options, err := m.createClientOptions()
-		if err != nil {
-			return nil, backoff.Permanent(errors.NewConnectionError(m.endpoint, fmt.Errorf("failed to create client options: %w", err)))
-		}
-		
-		// Create client with security options
-		client, err := opcua.NewClient(m.endpoint, options...)
-		if err != nil {
-			return nil, backoff.Permanent(errors.NewConnectionError(m.endpoint, fmt.Errorf("failed to create OPC UA client: %w", err)))
-		}
-		
-		// Connect with endpoint selection if security is enabled
+
+		// For secure connections, discover endpoints first
 		if m.securityConfig.SecurityMode != security.SecurityModeNone {
-			if err := m.connectWithEndpointSelection(ctx, client); err != nil {
+			client, err := m.connectWithEndpointDiscovery(ctx)
+			if err != nil {
 				log.Printf("Secure connection failed: %v", err)
 				return nil, errors.NewConnectionError(m.endpoint, err)
 			}
-		} else {
-			if err := client.Connect(ctx); err != nil {
-				log.Printf("Connection failed: %v", err)
-				return nil, errors.NewConnectionError(m.endpoint, err)
-			}
+			log.Print("Connected successfully to OPC UA server with security")
+			return client, nil
 		}
 		
-		log.Print("Connected successfully to OPC UA server")
+		// For insecure connections, use simple flow
+		client, err := m.connectInsecure(ctx)
+		if err != nil {
+			log.Printf("Connection failed: %v", err)
+			return nil, errors.NewConnectionError(m.endpoint, err)
+		}
+		log.Print("Connected successfully to OPC UA server (insecure)")
 		return client, nil
 	}
 
@@ -116,24 +109,29 @@ func (m *Manager) validateSecurityConfig() error {
 		PrivateKeyFile:  m.securityConfig.PrivateKeyFile,
 		AutoTrust:       m.securityConfig.AutoTrust,
 	}
-	
+
 	if err := security.ValidateAuthConfig(authConfig); err != nil {
 		return fmt.Errorf("authentication configuration invalid: %w", err)
 	}
-	
-	// Validate security mode and policy
-	if err := security.ValidateSecurityConfig(m.securityConfig.SecurityMode, m.securityConfig.SecurityPolicy); err != nil {
-		return fmt.Errorf("security mode/policy configuration invalid: %w", err)
+
+	// Validate security mode, policy, and certificate requirements
+	if err := security.ValidateSecurityConfigWithCertificates(
+		m.securityConfig.SecurityMode, 
+		m.securityConfig.SecurityPolicy,
+		m.securityConfig.CertificateFile,
+		m.securityConfig.PrivateKeyFile,
+	); err != nil {
+		return fmt.Errorf("security configuration invalid: %w", err)
 	}
-	
+
 	// Log security configuration issues
 	m.logSecurityIssues(authConfig)
-	
+
 	return nil
 }
 
-// createClientOptions creates OPC UA client options based on security configuration
-func (m *Manager) createClientOptions() ([]opcua.Option, error) {
+// connectInsecure creates and connects an insecure client
+func (m *Manager) connectInsecure(ctx context.Context) (*opcua.Client, error) {
 	authConfig := security.AuthConfig{
 		Mode:            m.securityConfig.AuthMode,
 		Username:        m.securityConfig.Username,
@@ -142,46 +140,97 @@ func (m *Manager) createClientOptions() ([]opcua.Option, error) {
 		PrivateKeyFile:  m.securityConfig.PrivateKeyFile,
 		AutoTrust:       m.securityConfig.AutoTrust,
 	}
-	
-	return security.CreateClientOptions(authConfig, m.securityConfig.SecurityMode, m.securityConfig.SecurityPolicy, m.debug)
+
+	options, err := security.CreateInsecureClientOptions(authConfig, m.debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create insecure client options: %w", err)
+	}
+
+	client, err := opcua.NewClient(m.endpoint, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OPC UA client: %w", err)
+	}
+
+	if err := client.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+
+	return client, nil
 }
 
-// connectWithEndpointSelection connects using endpoint selection for secure connections
-func (m *Manager) connectWithEndpointSelection(ctx context.Context, client *opcua.Client) error {
-	// Get available endpoints
-	endpointsResp, err := client.GetEndpoints(ctx)
+// connectWithEndpointDiscovery discovers endpoints and creates a secure client
+func (m *Manager) connectWithEndpointDiscovery(ctx context.Context) (*opcua.Client, error) {
+	// Step 1: Create discovery client (insecure for endpoint discovery)
+	discoveryClient, err := opcua.NewClient(m.endpoint, opcua.SecurityMode(ua.MessageSecurityModeNone))
 	if err != nil {
-		return fmt.Errorf("failed to get endpoints: %w", err)
+		return nil, fmt.Errorf("failed to create discovery client: %w", err)
 	}
-	
+
+	// Step 2: Connect discovery client to get endpoints
+	if err := discoveryClient.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect discovery client: %w", err)
+	}
+	defer discoveryClient.Close(ctx) // Clean up discovery client
+
+	// Step 3: Get available endpoints
+	endpointsResp, err := discoveryClient.GetEndpoints(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get endpoints: %w", err)
+	}
+
 	endpoints := endpointsResp.Endpoints
 	if m.debug {
 		log.Printf("Server offers %d endpoints", len(endpoints))
 		for i, ep := range endpoints {
-			log.Printf("Endpoint %d: %s (security: %s, policy: %s)", 
+			log.Printf("Endpoint %d: %s (security: %s, policy: %s)",
 				i, ep.EndpointURL, ep.SecurityMode, ep.SecurityPolicyURI)
 		}
 	}
-	
-	// Select appropriate endpoint
+
+	// Step 4: Select appropriate endpoint
 	selector := security.NewSecurityEndpointSelector(
 		m.securityConfig.SecurityMode,
 		m.securityConfig.SecurityPolicy,
 		m.securityConfig.AuthMode,
 		m.debug,
 	)
-	
+
 	selectedEndpoint, err := selector.SelectEndpoint(endpoints)
 	if err != nil {
-		return fmt.Errorf("failed to select compatible endpoint: %w", err)
+		return nil, fmt.Errorf("failed to select compatible endpoint: %w", err)
 	}
-	
+
 	if m.debug {
 		log.Printf("Selected endpoint: %s", selectedEndpoint.EndpointURL)
 	}
-	
-	// Connect using the selected endpoint
-	return client.Connect(ctx)
+
+	// Step 5: Create secure client with selected endpoint
+	authConfig := security.AuthConfig{
+		Mode:            m.securityConfig.AuthMode,
+		Username:        m.securityConfig.Username,
+		Password:        m.securityConfig.Password,
+		CertificateFile: m.securityConfig.CertificateFile,
+		PrivateKeyFile:  m.securityConfig.PrivateKeyFile,
+		AutoTrust:       m.securityConfig.AutoTrust,
+	}
+
+	options, err := security.CreateSecureClientOptions(authConfig, selectedEndpoint, m.debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create secure client options: %w", err)
+	}
+
+	// Use the selected endpoint's URL
+	client, err := opcua.NewClient(selectedEndpoint.EndpointURL, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create secure OPC UA client: %w", err)
+	}
+
+	// Step 6: Connect with security
+	if err := client.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect securely: %w", err)
+	}
+
+	return client, nil
 }
 
 // logSecurityIssues logs potential security configuration issues
@@ -190,27 +239,27 @@ func (m *Manager) logSecurityIssues(authConfig security.AuthConfig) {
 	if authConfig.AutoTrust {
 		log.Printf("WARNING: Auto-trust is enabled - this bypasses certificate validation and is insecure for production")
 	}
-	
+
 	if authConfig.Mode == security.AuthModeUsername && authConfig.Password == "" {
 		log.Printf("WARNING: Username authentication configured but password is empty")
 	}
-	
+
 	if m.securityConfig.SecurityMode == security.SecurityModeNone {
 		log.Printf("INFO: Security mode is 'None' - connection will not be encrypted")
 	}
-	
-	// Check for certificate file configuration issues  
+
+	// Check for certificate file configuration issues
 	if authConfig.CertificateFile != "" && authConfig.PrivateKeyFile == "" {
 		log.Printf("WARNING: Certificate file specified but private key file is missing")
 	}
-	
+
 	if authConfig.CertificateFile == "" && authConfig.PrivateKeyFile != "" {
 		log.Printf("WARNING: Private key file specified but certificate file is missing")
 	}
-	
+
 	// Log what security is being used
 	if m.debug {
-		log.Printf("Security configuration: mode=%s, policy=%s, auth=%s", 
+		log.Printf("Security configuration: mode=%s, policy=%s, auth=%s",
 			m.securityConfig.SecurityMode, m.securityConfig.SecurityPolicy, m.securityConfig.AuthMode)
 	}
 }

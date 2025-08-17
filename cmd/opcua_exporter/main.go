@@ -182,7 +182,17 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 	// Bind command-line flags to override configuration
 	viper.BindPFlags(pflag.CommandLine)
 
-	// Apply flag overrides to configuration
+	// Apply flag overrides in groups
+	applyBasicFlagOverrides(cfg)
+	applySecurityFlagOverrides(cfg)
+	if err := applyNodeFlagOverrides(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+func applyBasicFlagOverrides(cfg *config.Config) {
 	if viper.IsSet(flagPort) {
 		cfg.Port = viper.GetInt(flagPort)
 	}
@@ -210,8 +220,9 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 	if viper.IsSet(flagSubscribeToTimeNode) {
 		cfg.SubscribeToTimeNode = viper.GetBool(flagSubscribeToTimeNode)
 	}
-	
-	// Apply security flag overrides
+}
+
+func applySecurityFlagOverrides(cfg *config.Config) {
 	if viper.IsSet(flagSecurityMode) {
 		cfg.Security.SecurityMode = viper.GetString(flagSecurityMode)
 	}
@@ -236,8 +247,9 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 	if viper.IsSet(flagAutoTrust) {
 		cfg.Security.AutoTrust = viper.GetBool(flagAutoTrust)
 	}
+}
 
-	// Parse node flags and add to configuration
+func applyNodeFlagOverrides(cfg *config.Config) error {
 	nodeFlags := viper.GetStringSlice(flagNode)
 	for _, nodeFlag := range nodeFlags {
 		nodeMapping, err := parseNodeFlag(nodeFlag)
@@ -248,8 +260,7 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 		cfg.AddNodeMapping(nodeMapping)
 		log.Printf("Added node mapping from flag: %s -> %s", nodeMapping.NodeName, nodeMapping.MetricName)
 	}
-
-	return cfg, nil
+	return nil
 }
 
 func setupOPCUAClient(ctx context.Context, cfg *config.Config) (*opcua.Client, error) {

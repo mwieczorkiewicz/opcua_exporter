@@ -334,13 +334,161 @@ func TestSecurityEndpointSelector_isAuthModeSupported(t *testing.T) {
 	}
 }
 
-func TestCreateClientOptions(t *testing.T) {
+func TestValidateSecurityConfigWithCertificates(t *testing.T) {
+	tests := []struct {
+		name            string
+		securityMode    string
+		securityPolicy  string
+		certificateFile string
+		privateKeyFile  string
+		expectedError   string
+	}{
+		{
+			name:            "none security mode - no certificates required",
+			securityMode:    SecurityModeNone,
+			securityPolicy:  SecurityPolicyNone,
+			certificateFile: "",
+			privateKeyFile:  "",
+			expectedError:   "",
+		},
+		{
+			name:            "sign mode with Basic256Sha256 - certificates required but missing",
+			securityMode:    SecurityModeSign,
+			securityPolicy:  SecurityPolicyBasic256Sha256,
+			certificateFile: "",
+			privateKeyFile:  "",
+			expectedError:   "security policy 'Basic256Sha256' with mode 'Sign' requires both certificate and private key files to be specified",
+		},
+		{
+			name:            "signandencrypt mode with Basic256 - certificates required but missing",
+			securityMode:    SecurityModeSignAndEncrypt,
+			securityPolicy:  SecurityPolicyBasic256,
+			certificateFile: "",
+			privateKeyFile:  "",
+			expectedError:   "security policy 'Basic256' with mode 'SignAndEncrypt' requires both certificate and private key files to be specified",
+		},
+		{
+			name:            "sign mode with Basic128Rsa15 - certificates required but missing",
+			securityMode:    SecurityModeSign,
+			securityPolicy:  SecurityPolicyBasic128Rsa15,
+			certificateFile: "",
+			privateKeyFile:  "",
+			expectedError:   "security policy 'Basic128Rsa15' with mode 'Sign' requires both certificate and private key files to be specified",
+		},
+		{
+			name:            "secure policy with missing certificate file only",
+			securityMode:    SecurityModeSign,
+			securityPolicy:  SecurityPolicyBasic256Sha256,
+			certificateFile: "",
+			privateKeyFile:  "key.pem",
+			expectedError:   "security policy 'Basic256Sha256' with mode 'Sign' requires both certificate and private key files to be specified",
+		},
+		{
+			name:            "secure policy with missing private key file only",
+			securityMode:    SecurityModeSign,
+			securityPolicy:  SecurityPolicyBasic256Sha256,
+			certificateFile: "cert.pem",
+			privateKeyFile:  "",
+			expectedError:   "security policy 'Basic256Sha256' with mode 'Sign' requires both certificate and private key files to be specified",
+		},
+		{
+			name:            "secure policy with nonexistent certificate files",
+			securityMode:    SecurityModeSign,
+			securityPolicy:  SecurityPolicyBasic256Sha256,
+			certificateFile: "nonexistent_cert.pem",
+			privateKeyFile:  "nonexistent_key.pem",
+			expectedError:   "certificate validation failed for security policy 'Basic256Sha256'",
+		},
+		{
+			name:            "none policy with sign mode - should fail basic validation first",
+			securityMode:    SecurityModeSign,
+			securityPolicy:  SecurityPolicyNone,
+			certificateFile: "",
+			privateKeyFile:  "",
+			expectedError:   "security mode 'Sign' requires a security policy other than 'None'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSecurityConfigWithCertificates(tt.securityMode, tt.securityPolicy, tt.certificateFile, tt.privateKeyFile)
+
+			if tt.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			}
+		})
+	}
+}
+
+func TestRequiresCertificatesForSecurity(t *testing.T) {
+	tests := []struct {
+		name           string
+		securityMode   string
+		securityPolicy string
+		expected       bool
+	}{
+		{
+			name:           "none mode never requires certificates",
+			securityMode:   SecurityModeNone,
+			securityPolicy: SecurityPolicyNone,
+			expected:       false,
+		},
+		{
+			name:           "none mode with any policy never requires certificates",
+			securityMode:   SecurityModeNone,
+			securityPolicy: SecurityPolicyBasic256Sha256,
+			expected:       false,
+		},
+		{
+			name:           "sign mode with none policy does not require certificates",
+			securityMode:   SecurityModeSign,
+			securityPolicy: SecurityPolicyNone,
+			expected:       false,
+		},
+		{
+			name:           "sign mode with Basic256Sha256 requires certificates",
+			securityMode:   SecurityModeSign,
+			securityPolicy: SecurityPolicyBasic256Sha256,
+			expected:       true,
+		},
+		{
+			name:           "signandencrypt mode with Basic256 requires certificates",
+			securityMode:   SecurityModeSignAndEncrypt,
+			securityPolicy: SecurityPolicyBasic256,
+			expected:       true,
+		},
+		{
+			name:           "sign mode with Basic128Rsa15 requires certificates",
+			securityMode:   SecurityModeSign,
+			securityPolicy: SecurityPolicyBasic128Rsa15,
+			expected:       true,
+		},
+		{
+			name:           "unknown security policy with sign mode requires certificates",
+			securityMode:   SecurityModeSign,
+			securityPolicy: "UnknownPolicy",
+			expected:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := requiresCertificatesForSecurity(tt.securityMode, tt.securityPolicy)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCreateInsecureClientOptions(t *testing.T) {
 	t.Run("anonymous authentication", func(t *testing.T) {
 		authConfig := AuthConfig{
 			Mode: AuthModeAnonymous,
 		}
 		
-		options, err := CreateClientOptions(authConfig, SecurityModeNone, SecurityPolicyNone, false)
+		options, err := CreateInsecureClientOptions(authConfig, false)
 		
 		assert.NoError(t, err)
 		assert.NotEmpty(t, options)
@@ -353,7 +501,7 @@ func TestCreateClientOptions(t *testing.T) {
 			Password: "testpass",
 		}
 		
-		options, err := CreateClientOptions(authConfig, SecurityModeNone, SecurityPolicyNone, false)
+		options, err := CreateInsecureClientOptions(authConfig, false)
 		
 		assert.NoError(t, err)
 		assert.NotEmpty(t, options)
@@ -366,10 +514,115 @@ func TestCreateClientOptions(t *testing.T) {
 			PrivateKeyFile:  "nonexistent.pem",
 		}
 		
-		options, err := CreateClientOptions(authConfig, SecurityModeNone, SecurityPolicyNone, false)
+		options, err := CreateInsecureClientOptions(authConfig, false)
 		
 		assert.Error(t, err)
 		assert.Nil(t, options)
 		assert.Contains(t, err.Error(), "failed to load certificate")
 	})
+}
+
+func TestGetUserTokenTypeForAuth(t *testing.T) {
+	// Create test endpoints with different authentication tokens
+	anonymousEndpoint := &ua.EndpointDescription{
+		UserIdentityTokens: []*ua.UserTokenPolicy{
+			{TokenType: ua.UserTokenTypeAnonymous},
+		},
+	}
+
+	usernameEndpoint := &ua.EndpointDescription{
+		UserIdentityTokens: []*ua.UserTokenPolicy{
+			{TokenType: ua.UserTokenTypeUserName},
+		},
+	}
+
+	certificateEndpoint := &ua.EndpointDescription{
+		UserIdentityTokens: []*ua.UserTokenPolicy{
+			{TokenType: ua.UserTokenTypeCertificate},
+		},
+	}
+
+	multiAuthEndpoint := &ua.EndpointDescription{
+		UserIdentityTokens: []*ua.UserTokenPolicy{
+			{TokenType: ua.UserTokenTypeAnonymous},
+			{TokenType: ua.UserTokenTypeUserName},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		authMode      string
+		endpoint      *ua.EndpointDescription
+		expectedType  ua.UserTokenType
+		expectedError string
+	}{
+		{
+			name:         "anonymous auth supported",
+			authMode:     AuthModeAnonymous,
+			endpoint:     anonymousEndpoint,
+			expectedType: ua.UserTokenTypeAnonymous,
+		},
+		{
+			name:          "anonymous auth not supported",
+			authMode:      AuthModeAnonymous,
+			endpoint:      usernameEndpoint,
+			expectedError: "anonymous authentication not supported by endpoint",
+		},
+		{
+			name:         "username auth supported",
+			authMode:     AuthModeUsername,
+			endpoint:     usernameEndpoint,
+			expectedType: ua.UserTokenTypeUserName,
+		},
+		{
+			name:          "username auth not supported",
+			authMode:      AuthModeUsername,
+			endpoint:      certificateEndpoint,
+			expectedError: "username authentication not supported by endpoint",
+		},
+		{
+			name:         "certificate auth supported",
+			authMode:     AuthModeCertificate,
+			endpoint:     certificateEndpoint,
+			expectedType: ua.UserTokenTypeCertificate,
+		},
+		{
+			name:          "certificate auth not supported",
+			authMode:      AuthModeCertificate,
+			endpoint:      anonymousEndpoint,
+			expectedError: "certificate authentication not supported by endpoint",
+		},
+		{
+			name:         "anonymous auth in multi-auth endpoint",
+			authMode:     AuthModeAnonymous,
+			endpoint:     multiAuthEndpoint,
+			expectedType: ua.UserTokenTypeAnonymous,
+		},
+		{
+			name:         "username auth in multi-auth endpoint",
+			authMode:     AuthModeUsername,
+			endpoint:     multiAuthEndpoint,
+			expectedType: ua.UserTokenTypeUserName,
+		},
+		{
+			name:          "unsupported auth mode",
+			authMode:      "InvalidMode",
+			endpoint:      anonymousEndpoint,
+			expectedError: "unsupported authentication mode: InvalidMode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := getUserTokenTypeForAuth(tt.authMode, tt.endpoint)
+
+			if tt.expectedError == "" {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedType, result)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+			}
+		})
+	}
 }

@@ -210,12 +210,12 @@ func WaitForScrapeTarget(ctx context.Context, prometheus *e2emon.Prometheus, job
 	return WaitForMetric(ctx, prometheus, fmt.Sprintf("up{job=\"%s\"}", job), timeout)
 }
 
-// NewPrometheusForTestSuite creates a Prometheus instance configured to scrape all test exporters
+// NewPrometheusForTestSuite creates a Prometheus instance configured to scrape all test exporters including security scenarios
 func NewPrometheusForTestSuite(env e2e.Environment, name string) (*e2emon.Prometheus, error) {
 	// Create Prometheus using e2edb helper
 	prometheus := e2edb.NewPrometheus(env, name)
 
-	// Create configuration that includes all test exporter targets
+	// Create configuration that includes all test exporter targets, including security-related ones
 	prometheusConfig := fmt.Sprintf(`
 global:
   scrape_interval: 5s
@@ -224,6 +224,7 @@ global:
     prometheus: %s
 
 scrape_configs:
+  # Basic functionality tests
   - job_name: 'opcua-exporter-basic'
     static_configs:
       - targets: ['opcua-exporter-basic:9686']
@@ -259,6 +260,73 @@ scrape_configs:
       - targets: ['opcua-exporter-config:9686']
     scrape_interval: 5s
     scrape_timeout: 5s
+  
+  # Security-related tests - Username/Password Authentication
+  - job_name: 'opcua-exporter-user-auth'
+    static_configs:
+      - targets: ['opcua-exporter-user-auth:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-sign-mode'
+    static_configs:
+      - targets: ['opcua-exporter-sign-mode:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # Certificate Authentication Tests  
+  - job_name: 'opcua-exporter-cert-auth'
+    static_configs:
+      - targets: ['opcua-exporter-cert-auth:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # Security Configuration Scenarios
+  - job_name: 'opcua-exporter-sec-yaml'
+    static_configs:
+      - targets: ['opcua-exporter-sec-yaml:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-sec-env'
+    static_configs:
+      - targets: ['opcua-exporter-sec-env:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-sec-flags'
+    static_configs:
+      - targets: ['opcua-exporter-sec-flags:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-sec-sign'
+    static_configs:
+      - targets: ['opcua-exporter-sec-sign:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # Certificate Authentication Configuration Scenarios
+  - job_name: 'opcua-exporter-cert-yaml'
+    static_configs:
+      - targets: ['opcua-exporter-cert-yaml:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-cert-env'
+    static_configs:
+      - targets: ['opcua-exporter-cert-env:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+  - job_name: 'opcua-exporter-cert-flags'
+    static_configs:
+      - targets: ['opcua-exporter-cert-flags:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # Security Failure Scenarios
+  - job_name: 'opcua-exporter-no-pass'
+    static_configs:
+      - targets: ['opcua-exporter-no-pass:9686']
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # Prometheus internal metrics
   - job_name: 'myself'
     scrape_interval: 1s
     scrape_timeout: 1s

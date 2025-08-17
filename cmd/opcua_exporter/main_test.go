@@ -43,7 +43,7 @@ func TestHandleMessage(t *testing.T) {
 	nodeName1 := nodeID1.String()
 	nodeName2 := nodeID2.String()
 	handlerMap := make(map[string][]metrics.HandlerRecord)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mapRecord := metrics.HandlerRecord{
 			Config:  config.NodeMapping{NodeName: nodeName1, MetricName: "whatever"},
 			Handler: &mockHandler{},

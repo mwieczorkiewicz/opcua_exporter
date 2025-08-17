@@ -186,7 +186,7 @@ func WaitForScrapeTargetWithBackoff(ctx context.Context, prometheus *e2emon.Prom
 	defer cancel()
 
 	operation := func() (struct{}, error) {
-		result, err := QueryPrometheusMetric(timeoutCtx, prometheus, fmt.Sprintf("up{job=\"%s\"}", job))
+		result, err := QueryPrometheusMetric(timeoutCtx, prometheus, fmt.Sprintf("opcua_server_time{job=\"%s\"}", job))
 		if err != nil {
 			return struct{}{}, err
 		}
