@@ -9,7 +9,7 @@ jobs:
   test-and-build:
     runs-on: ubuntu-24.04
     permissions:
-      contents: read  # Required to checkout code
+      contents: read 
     strategy:
       matrix:
         go:
@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test-and-build
     permissions:
-      contents: read      # Required to checkout code
-      packages: write     # Required to push Docker images to GHCR
+      contents: read      
+      packages: write     
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
       image-digest: ${{ steps.build.outputs.digest }}
