@@ -2,6 +2,10 @@ name: Publish Release Binaries
 on:
   release:
     types: [created]
+
+permissions:
+  contents: write  # Required for uploading release assets
+
 jobs:
   publish_binaries:
     name: Build binaries and attach them to the release
@@ -14,7 +18,7 @@ jobs:
           - darwin
           - windows
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: wangyoucao577/go-release-action@v1.53
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
