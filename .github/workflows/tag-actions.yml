@@ -3,14 +3,13 @@ name: Tag Actions
 on:
   create
 
-permissions:
-  contents: read
-  packages: write  # Required for pushing Docker images to GHCR
-
 jobs:
   push_to_registry:
     name: Build and push image to github packages
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read      # Required to checkout code
+      packages: write     # Required to push Docker images to GHCR
     steps:
       - uses: actions/checkout@v4
       -
