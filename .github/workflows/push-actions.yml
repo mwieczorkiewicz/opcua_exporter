@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   test-and-build:
@@ -49,6 +49,9 @@ jobs:
           echo "Image name: ${{ env.IMAGE_NAME }}"
           echo "Actor: ${{ github.actor }}"
           echo "Repository: ${{ github.repository }}"
+          echo "Repository owner: ${{ github.repository_owner }}"
+          echo "Repository name: ${{ github.event.repository.name }}"
+          echo "Full image path: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -63,14 +66,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Commit SHA (primary tag)
-            type=sha,prefix={{branch}}-
-            # Short commit SHA 
+            # Short commit SHA with branch prefix
             type=sha,format=short,prefix={{branch}}-
-            # Branch name for feature branches
-            type=ref,event=branch
-            # PR number for pull requests
-            type=ref,event=pr
             # Latest tag only for main branch
             type=raw,value=latest,enable={{is_default_branch}}
 
