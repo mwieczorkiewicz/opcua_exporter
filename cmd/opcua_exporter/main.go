@@ -64,7 +64,6 @@ const (
 	metricsPath            = "/metrics"
 )
 
-
 var startTime = time.Now()
 var uptimeGauge prometheus.Gauge
 var messageCounter prometheus.Counter
@@ -109,9 +108,6 @@ func init() {
 	})
 	prometheus.MustRegister(messageCounter)
 }
-
-
-
 
 // parseNodeFlag parses a node flag string in format "nodeId,metricName[,extractBit]"
 func parseNodeFlag(nodeFlag string) (config.NodeMapping, error) {
@@ -360,7 +356,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[stri
 			}
 		case <-time.After(readTimeout):
 			timeoutCount++
-			log.Printf("Timeout %d wating for subscription messages", timeoutCount)
+			log.Printf("Timeout %d waiting for subscription messages", timeoutCount)
 			if maxTimeouts > 0 && timeoutCount >= maxTimeouts {
 				return fmt.Errorf("max timeouts (%d) exceeded", maxTimeouts)
 			}
@@ -376,12 +372,12 @@ func cleanup(ctx context.Context, sub *monitor.Subscription) {
 
 func handleError(c *opcua.Client, sub *monitor.Subscription, err error) {
 	log.Printf("[error] sub=%d error=%s", sub.SubscriptionID(), err)
-	
+
 	// Check for server halted or connection errors that might require reconnection
 	errorStr := err.Error()
 	if strings.Contains(errorStr, "StatusBadServerHalted") ||
-	   strings.Contains(errorStr, "BadConnectionClosed") ||
-	   strings.Contains(errorStr, "connection reset") {
+		strings.Contains(errorStr, "BadConnectionClosed") ||
+		strings.Contains(errorStr, "connection reset") {
 		log.Printf("[error] Server connection issue detected: %s. Monitor will attempt to reconnect.", errorStr)
 		// The monitor.NodeMonitor will handle reconnection automatically
 		// We just log the issue for monitoring purposes
@@ -402,4 +398,3 @@ func handleMessage(msg *monitor.DataChangeMessage, handlerMap map[string][]metri
 		}
 	}
 }
-
