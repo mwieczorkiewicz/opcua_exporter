@@ -3,6 +3,7 @@ package connection
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,14 @@ func TestNewManager(t *testing.T) {
 		Password:       "testpass",
 	}
 
-	manager := NewManager(endpoint, securityConfig, true)
+	timeouts := config.ConnectionTimeouts{
+		DialTimeout:            5 * time.Second,
+		RequestTimeout:         10 * time.Second,
+		SessionTimeout:         15 * time.Minute,
+		ConnectionRetryTimeout: 5 * time.Minute,
+	}
+
+	manager := NewManager(endpoint, securityConfig, timeouts, true)
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, endpoint, manager.endpoint)
@@ -119,7 +127,7 @@ func TestManager_validateSecurityConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager := NewManager("opc.tcp://test:4840", tt.securityConfig, false)
+			manager := NewManager("opc.tcp://test:4840", tt.securityConfig, config.ConnectionTimeouts{}, false)
 
 			err := manager.validateSecurityConfig()
 
@@ -136,20 +144,20 @@ func TestManager_validateSecurityConfig(t *testing.T) {
 }
 
 func TestManager_Client(t *testing.T) {
-	manager := NewManager("opc.tcp://test:4840", config.SecurityConfig{}, false)
-	
+	manager := NewManager("opc.tcp://test:4840", config.SecurityConfig{}, config.ConnectionTimeouts{}, false)
+
 	// Initially, client should be nil
 	assert.Nil(t, manager.Client())
-	
+
 	// After setting client internally, it should return that client
 	// Note: We can't test Connect() without a real server, but we can test the getter
 }
 
 // TestManager_Close tests the Close method
 func TestManager_Close(t *testing.T) {
-	manager := NewManager("opc.tcp://test:4840", config.SecurityConfig{}, false)
+	manager := NewManager("opc.tcp://test:4840", config.SecurityConfig{}, config.ConnectionTimeouts{}, false)
 	ctx := context.Background()
-	
+
 	// Close should work even with nil client
 	err := manager.Close(ctx)
 	assert.NoError(t, err)
@@ -209,7 +217,7 @@ func TestManager_logSecurityIssues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager := NewManager("opc.tcp://test:4840", tt.securityConfig, true)
+			manager := NewManager("opc.tcp://test:4840", tt.securityConfig, config.ConnectionTimeouts{}, true)
 
 			// This should not panic - just verify the manager was created correctly
 			assert.NotPanics(t, func() {

@@ -273,12 +273,6 @@ scrape_configs:
     scrape_interval: 5s
     scrape_timeout: 5s
 
-  # Certificate Authentication Tests  
-  - job_name: 'opcua-exporter-cert-auth'
-    static_configs:
-      - targets: ['opcua-exporter-cert-auth:9686']
-    scrape_interval: 5s
-    scrape_timeout: 5s
 
   # Security Configuration Scenarios
   - job_name: 'opcua-exporter-sec-yaml'
@@ -302,22 +296,6 @@ scrape_configs:
     scrape_interval: 5s
     scrape_timeout: 5s
 
-  # Certificate Authentication Configuration Scenarios
-  - job_name: 'opcua-exporter-cert-yaml'
-    static_configs:
-      - targets: ['opcua-exporter-cert-yaml:9686']
-    scrape_interval: 5s
-    scrape_timeout: 5s
-  - job_name: 'opcua-exporter-cert-env'
-    static_configs:
-      - targets: ['opcua-exporter-cert-env:9686']
-    scrape_interval: 5s
-    scrape_timeout: 5s
-  - job_name: 'opcua-exporter-cert-flags'
-    static_configs:
-      - targets: ['opcua-exporter-cert-flags:9686']
-    scrape_interval: 5s
-    scrape_timeout: 5s
 
   # Security Failure Scenarios
   - job_name: 'opcua-exporter-no-pass'

@@ -19,14 +19,16 @@ type Manager struct {
 	client         *opcua.Client
 	endpoint       string
 	securityConfig config.SecurityConfig
+	timeouts       config.ConnectionTimeouts
 	debug          bool
 }
 
 // NewManager creates a new connection manager for the given endpoint and configuration
-func NewManager(endpoint string, securityConfig config.SecurityConfig, debug bool) *Manager {
+func NewManager(endpoint string, securityConfig config.SecurityConfig, timeouts config.ConnectionTimeouts, debug bool) *Manager {
 	return &Manager{
 		endpoint:       endpoint,
 		securityConfig: securityConfig,
+		timeouts:       timeouts,
 		debug:          debug,
 	}
 }
@@ -51,7 +53,7 @@ func (m *Manager) Connect(ctx context.Context) (*opcua.Client, error) {
 			log.Print("Connected successfully to OPC UA server with security")
 			return client, nil
 		}
-		
+
 		// For insecure connections, use simple flow
 		client, err := m.connectInsecure(ctx)
 		if err != nil {
@@ -74,7 +76,7 @@ func (m *Manager) Connect(ctx context.Context) (*opcua.Client, error) {
 
 	client, err := backoff.Retry(ctx, connectOperation,
 		backoff.WithBackOff(expBackoff),
-		backoff.WithMaxElapsedTime(5*time.Minute),
+		backoff.WithMaxElapsedTime(m.timeouts.ConnectionRetryTimeout),
 		backoff.WithNotify(notify),
 	)
 	if err != nil {
@@ -116,7 +118,7 @@ func (m *Manager) validateSecurityConfig() error {
 
 	// Validate security mode, policy, and certificate requirements
 	if err := security.ValidateSecurityConfigWithCertificates(
-		m.securityConfig.SecurityMode, 
+		m.securityConfig.SecurityMode,
 		m.securityConfig.SecurityPolicy,
 		m.securityConfig.CertificateFile,
 		m.securityConfig.PrivateKeyFile,
@@ -141,7 +143,7 @@ func (m *Manager) connectInsecure(ctx context.Context) (*opcua.Client, error) {
 		AutoTrust:       m.securityConfig.AutoTrust,
 	}
 
-	options, err := security.CreateInsecureClientOptions(authConfig, m.debug)
+	options, err := security.CreateInsecureClientOptions(authConfig, m.timeouts, m.debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create insecure client options: %w", err)
 	}
@@ -188,7 +190,7 @@ func (m *Manager) connectWithEndpointDiscovery(ctx context.Context) (*opcua.Clie
 	}
 
 	// Step 4: Select appropriate endpoint
-	selector := security.NewSecurityEndpointSelector(
+	selector := security.NewEndpointSelector(
 		m.securityConfig.SecurityMode,
 		m.securityConfig.SecurityPolicy,
 		m.securityConfig.AuthMode,
@@ -214,7 +216,7 @@ func (m *Manager) connectWithEndpointDiscovery(ctx context.Context) (*opcua.Clie
 		AutoTrust:       m.securityConfig.AutoTrust,
 	}
 
-	options, err := security.CreateSecureClientOptions(authConfig, selectedEndpoint, m.debug)
+	options, err := security.CreateSecureClientOptions(authConfig, selectedEndpoint, m.timeouts, m.debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create secure client options: %w", err)
 	}

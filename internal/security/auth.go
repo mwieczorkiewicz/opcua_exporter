@@ -8,6 +8,7 @@ import (
 
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/ua"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
 )
 
 // AuthMode constants for supported authentication modes
@@ -42,17 +43,17 @@ type AuthConfig struct {
 	AutoTrust       bool
 }
 
-// SecurityEndpointSelector helps select the appropriate security endpoint
-type SecurityEndpointSelector struct {
+// EndpointSelector helps select the appropriate security endpoint
+type EndpointSelector struct {
 	securityMode   string
 	securityPolicy string
 	authMode       string
 	debug          bool
 }
 
-// NewSecurityEndpointSelector creates a new endpoint selector
-func NewSecurityEndpointSelector(securityMode, securityPolicy, authMode string, debug bool) *SecurityEndpointSelector {
-	return &SecurityEndpointSelector{
+// NewEndpointSelector creates a new endpoint selector
+func NewEndpointSelector(securityMode, securityPolicy, authMode string, debug bool) *EndpointSelector {
+	return &EndpointSelector{
 		securityMode:   securityMode,
 		securityPolicy: securityPolicy,
 		authMode:       authMode,
@@ -127,13 +128,13 @@ func ValidateSecurityConfigWithCertificates(securityMode, securityPolicy, certif
 
 	// Check if certificates are required for the security configuration
 	requiresCertificates := requiresCertificatesForSecurity(securityMode, securityPolicy)
-	
+
 	if requiresCertificates {
 		if certificateFile == "" || privateKeyFile == "" {
-			return fmt.Errorf("security policy '%s' with mode '%s' requires both certificate and private key files to be specified", 
+			return fmt.Errorf("security policy '%s' with mode '%s' requires both certificate and private key files to be specified",
 				securityPolicy, securityMode)
 		}
-		
+
 		// Validate that the certificate files exist and are readable
 		if err := ValidateCertificateFiles(certificateFile, privateKeyFile); err != nil {
 			return fmt.Errorf("certificate validation failed for security policy '%s': %w", securityPolicy, err)
@@ -149,7 +150,7 @@ func requiresCertificatesForSecurity(securityMode, securityPolicy string) bool {
 	if securityMode == SecurityModeNone {
 		return false
 	}
-	
+
 	// Sign and SignAndEncrypt modes with crypto policies require certificates
 	switch securityPolicy {
 	case SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, SecurityPolicyBasic256Sha256:
@@ -163,7 +164,7 @@ func requiresCertificatesForSecurity(securityMode, securityPolicy string) bool {
 }
 
 // SelectEndpoint selects the best matching endpoint from available endpoints
-func (ses *SecurityEndpointSelector) SelectEndpoint(endpoints []*ua.EndpointDescription) (*ua.EndpointDescription, error) {
+func (ses *EndpointSelector) SelectEndpoint(endpoints []*ua.EndpointDescription) (*ua.EndpointDescription, error) {
 	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("no endpoints available")
 	}
@@ -183,7 +184,7 @@ func (ses *SecurityEndpointSelector) SelectEndpoint(endpoints []*ua.EndpointDesc
 	for _, ep := range endpoints {
 		// Check security mode match
 		securityModeMatch := ep.SecurityMode == targetSecurityMode
-		
+
 		// Check security policy match
 		var policyMatch bool
 		if targetPolicyURI == "None" {
@@ -242,7 +243,7 @@ func (ses *SecurityEndpointSelector) SelectEndpoint(endpoints []*ua.EndpointDesc
 }
 
 // parseSecurityMode converts string to OPC UA MessageSecurityMode
-func (ses *SecurityEndpointSelector) parseSecurityMode() (ua.MessageSecurityMode, error) {
+func (ses *EndpointSelector) parseSecurityMode() (ua.MessageSecurityMode, error) {
 	switch ses.securityMode {
 	case SecurityModeNone:
 		return ua.MessageSecurityModeNone, nil
@@ -256,7 +257,7 @@ func (ses *SecurityEndpointSelector) parseSecurityMode() (ua.MessageSecurityMode
 }
 
 // parseSecurityPolicy converts string to check against security policy URI
-func (ses *SecurityEndpointSelector) parseSecurityPolicy() (string, error) {
+func (ses *EndpointSelector) parseSecurityPolicy() (string, error) {
 	switch ses.securityPolicy {
 	case SecurityPolicyNone:
 		return "None", nil
@@ -272,13 +273,13 @@ func (ses *SecurityEndpointSelector) parseSecurityPolicy() (string, error) {
 }
 
 // getSecurityPolicyURI returns the policy name for URI matching
-func (ses *SecurityEndpointSelector) getSecurityPolicyURI() string {
+func (ses *EndpointSelector) getSecurityPolicyURI() string {
 	policy, _ := ses.parseSecurityPolicy()
 	return policy
 }
 
 // isAuthModeSupported checks if the endpoint supports the required authentication mode
-func (ses *SecurityEndpointSelector) isAuthModeSupported(ep *ua.EndpointDescription) bool {
+func (ses *EndpointSelector) isAuthModeSupported(ep *ua.EndpointDescription) bool {
 	switch ses.authMode {
 	case AuthModeAnonymous:
 		// Check if anonymous authentication is supported
@@ -310,7 +311,7 @@ func (ses *SecurityEndpointSelector) isAuthModeSupported(ep *ua.EndpointDescript
 }
 
 // CreateInsecureClientOptions creates OPC UA client options for insecure connections
-func CreateInsecureClientOptions(authConfig AuthConfig, debug bool) ([]opcua.Option, error) {
+func CreateInsecureClientOptions(authConfig AuthConfig, timeouts config.ConnectionTimeouts, debug bool) ([]opcua.Option, error) {
 	var options []opcua.Option
 
 	// Add authentication options
@@ -340,16 +341,23 @@ func CreateInsecureClientOptions(authConfig AuthConfig, debug bool) ([]opcua.Opt
 
 	// For insecure connections, use no security
 	options = append(options, opcua.SecurityMode(ua.MessageSecurityModeNone))
-	
+
+	// Add timeout options
+	options = append(options, opcua.DialTimeout(timeouts.DialTimeout))
+	options = append(options, opcua.RequestTimeout(timeouts.RequestTimeout))
+	options = append(options, opcua.SessionTimeout(timeouts.SessionTimeout))
+
 	if debug {
 		log.Printf("Using insecure connection (no encryption)")
+		log.Printf("Timeout configuration: dial=%v, request=%v, session=%v",
+			timeouts.DialTimeout, timeouts.RequestTimeout, timeouts.SessionTimeout)
 	}
 
 	return options, nil
 }
 
 // CreateSecureClientOptions creates OPC UA client options for secure connections with selected endpoint
-func CreateSecureClientOptions(authConfig AuthConfig, selectedEndpoint *ua.EndpointDescription, debug bool) ([]opcua.Option, error) {
+func CreateSecureClientOptions(authConfig AuthConfig, selectedEndpoint *ua.EndpointDescription, timeouts config.ConnectionTimeouts, debug bool) ([]opcua.Option, error) {
 	var options []opcua.Option
 
 	// Get the user token type for this authentication mode
@@ -394,14 +402,14 @@ func CreateSecureClientOptions(authConfig AuthConfig, selectedEndpoint *ua.Endpo
 			return nil, fmt.Errorf("failed to load certificate for secure channel: %w", err)
 		}
 		options = append(options, opcua.Certificate(cert.Certificate[0]))
-		
+
 		// Type assert the private key to RSA private key
 		if rsaKey, ok := cert.PrivateKey.(*rsa.PrivateKey); ok {
 			options = append(options, opcua.PrivateKey(rsaKey))
 		} else {
 			return nil, fmt.Errorf("private key is not an RSA key")
 		}
-		
+
 		if debug {
 			log.Printf("Configured certificate for secure channel")
 		}
@@ -416,8 +424,15 @@ func CreateSecureClientOptions(authConfig AuthConfig, selectedEndpoint *ua.Endpo
 		}
 	}
 
+	// Add timeout options
+	options = append(options, opcua.DialTimeout(timeouts.DialTimeout))
+	options = append(options, opcua.RequestTimeout(timeouts.RequestTimeout))
+	options = append(options, opcua.SessionTimeout(timeouts.SessionTimeout))
+
 	if debug {
 		log.Printf("Using secure connection with endpoint: %s", selectedEndpoint.EndpointURL)
+		log.Printf("Timeout configuration: dial=%v, request=%v, session=%v",
+			timeouts.DialTimeout, timeouts.RequestTimeout, timeouts.SessionTimeout)
 	}
 
 	return options, nil

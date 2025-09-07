@@ -69,20 +69,36 @@ type SecurityConfig struct {
 	AutoTrust bool `yaml:"autoTrust,omitempty" mapstructure:"autoTrust"`
 }
 
+// ConnectionTimeouts holds timeout configuration for OPC UA connections
+type ConnectionTimeouts struct {
+	// DialTimeout is the timeout for establishing the initial connection
+	DialTimeout time.Duration `yaml:"dialTimeout" mapstructure:"dialTimeout"`
+
+	// RequestTimeout is the timeout for individual OPC UA service requests
+	RequestTimeout time.Duration `yaml:"requestTimeout" mapstructure:"requestTimeout"`
+
+	// SessionTimeout is the requested session timeout (how long the session stays alive)
+	SessionTimeout time.Duration `yaml:"sessionTimeout" mapstructure:"sessionTimeout"`
+
+	// ConnectionRetryTimeout is the maximum total time to spend retrying connections
+	ConnectionRetryTimeout time.Duration `yaml:"connectionRetryTimeout" mapstructure:"connectionRetryTimeout"`
+}
+
 // Config holds all configuration values for the OPC UA exporter
 type Config struct {
-	Port                int            `yaml:"port" mapstructure:"port"`
-	Endpoint            string         `yaml:"endpoint" mapstructure:"endpoint"`
-	PromPrefix          string         `yaml:"promPrefix" mapstructure:"promPrefix"`
-	ConfigFile          string         `yaml:"configFile" mapstructure:"config"`
-	Debug               bool           `yaml:"debug" mapstructure:"debug"`
-	ReadTimeout         time.Duration  `yaml:"readTimeout" mapstructure:"readTimeout"`
-	MaxTimeouts         int            `yaml:"maxTimeouts" mapstructure:"maxTimeouts"`
-	BufferSize          int            `yaml:"bufferSize" mapstructure:"bufferSize"`
-	SummaryInterval     time.Duration  `yaml:"summaryInterval" mapstructure:"summaryInterval"`
-	SubscribeToTimeNode bool           `yaml:"subscribeToTimeNode" mapstructure:"subscribeToTimeNode"`
-	NodeMappings        []NodeMapping  `yaml:"nodes" mapstructure:"nodes"`
-	Security            SecurityConfig `yaml:"security" mapstructure:"security"`
+	Port                int                `yaml:"port" mapstructure:"port"`
+	Endpoint            string             `yaml:"endpoint" mapstructure:"endpoint"`
+	PromPrefix          string             `yaml:"promPrefix" mapstructure:"promPrefix"`
+	ConfigFile          string             `yaml:"configFile" mapstructure:"config"`
+	Debug               bool               `yaml:"debug" mapstructure:"debug"`
+	ReadTimeout         time.Duration      `yaml:"readTimeout" mapstructure:"readTimeout"`
+	MaxTimeouts         int                `yaml:"maxTimeouts" mapstructure:"maxTimeouts"`
+	BufferSize          int                `yaml:"bufferSize" mapstructure:"bufferSize"`
+	SummaryInterval     time.Duration      `yaml:"summaryInterval" mapstructure:"summaryInterval"`
+	SubscribeToTimeNode bool               `yaml:"subscribeToTimeNode" mapstructure:"subscribeToTimeNode"`
+	NodeMappings        []NodeMapping      `yaml:"nodes" mapstructure:"nodes"`
+	Security            SecurityConfig     `yaml:"security" mapstructure:"security"`
+	Timeouts            ConnectionTimeouts `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // Load loads configuration from multiple sources in priority order:
@@ -95,7 +111,7 @@ func Load(configFile string) (*Config, error) {
 
 	// Allow empty environment variables to override defaults
 	v.AllowEmptyEnv(true)
-	
+
 	// Set default values
 	v.SetDefault("port", 9686)
 	v.SetDefault("endpoint", "opc.tcp://localhost:4096")
@@ -114,10 +130,16 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("security.authMode", "Anonymous")
 	v.SetDefault("security.autoTrust", false)
 
+	// Set timeout defaults (matching current hardcoded values)
+	v.SetDefault("timeouts.dialTimeout", 10*time.Second)
+	v.SetDefault("timeouts.requestTimeout", 5*time.Second)
+	v.SetDefault("timeouts.sessionTimeout", 20*time.Minute)
+	v.SetDefault("timeouts.connectionRetryTimeout", 5*time.Minute)
+
 	// Configure environment variable support
 	v.SetEnvPrefix("OPCUA_EXPORTER")
 	v.AutomaticEnv()
-	
+
 	// Bind environment variables explicitly since viper's key replacer is tricky
 	v.BindEnv("port", "OPCUA_EXPORTER_PORT")
 	v.BindEnv("endpoint", "OPCUA_EXPORTER_ENDPOINT")
@@ -128,7 +150,7 @@ func Load(configFile string) (*Config, error) {
 	v.BindEnv("bufferSize", "OPCUA_EXPORTER_BUFFER_SIZE")
 	v.BindEnv("summaryInterval", "OPCUA_EXPORTER_SUMMARY_INTERVAL")
 	v.BindEnv("subscribeToTimeNode", "OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE")
-	
+
 	// Security settings
 	v.BindEnv("security.securityMode", "OPCUA_EXPORTER_SECURITY_MODE")
 	v.BindEnv("security.securityPolicy", "OPCUA_EXPORTER_SECURITY_POLICY")
@@ -138,6 +160,12 @@ func Load(configFile string) (*Config, error) {
 	v.BindEnv("security.certificateFile", "OPCUA_EXPORTER_CERTIFICATE_FILE")
 	v.BindEnv("security.privateKeyFile", "OPCUA_EXPORTER_PRIVATE_KEY_FILE")
 	v.BindEnv("security.autoTrust", "OPCUA_EXPORTER_AUTO_TRUST")
+
+	// Timeout settings
+	v.BindEnv("timeouts.dialTimeout", "OPCUA_EXPORTER_DIAL_TIMEOUT")
+	v.BindEnv("timeouts.requestTimeout", "OPCUA_EXPORTER_REQUEST_TIMEOUT")
+	v.BindEnv("timeouts.sessionTimeout", "OPCUA_EXPORTER_SESSION_TIMEOUT")
+	v.BindEnv("timeouts.connectionRetryTimeout", "OPCUA_EXPORTER_CONNECTION_RETRY_TIMEOUT")
 
 	// Load configuration file if specified
 	configFileLoaded := false
@@ -163,7 +191,7 @@ func Load(configFile string) (*Config, error) {
 	envNodeMappings := parseEnvNodeMappings()
 
 	var config Config
-	
+
 	// Unmarshal the configuration
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("error unmarshaling configuration: %w", err)
@@ -189,7 +217,7 @@ func Load(configFile string) (*Config, error) {
 			return nil, fmt.Errorf("invalid node mapping at index %d: %w", i, err)
 		}
 	}
-	
+
 	// Filter out empty node mappings (only removes truly empty ones, not invalid ones)
 	config.NodeMappings = filterValidNodeMappings(config.NodeMappings)
 
@@ -240,7 +268,6 @@ func filterValidNodeMappings(mappings []NodeMapping) []NodeMapping {
 	return validMappings
 }
 
-
 // applySecurityDefaults applies default values for empty security configuration strings
 // Only applies defaults to required fields, leaves optional fields empty
 func applySecurityDefaults(config *Config) {
@@ -280,7 +307,7 @@ func (c *Config) AddNodeMapping(nodeMapping NodeMapping) {
 			log.Printf("Metric mapping '%s' overridden by command-line flag", mapping.MetricName)
 		}
 	}
-	
+
 	// Add the new mapping
 	result = append(result, nodeMapping)
 	c.NodeMappings = result

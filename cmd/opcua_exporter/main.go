@@ -42,16 +42,22 @@ const (
 	flagSubscribeToTimeNode = "subscribe-to-time-node"
 	flagNode                = "node"
 	flagConfig              = "config"
-	
+
 	// Security flag names
-	flagSecurityMode      = "security-mode"
-	flagSecurityPolicy    = "security-policy"
-	flagAuthMode          = "auth-mode"
-	flagUsername          = "username"
-	flagPassword          = "password"
-	flagCertificateFile   = "certificate-file"
-	flagPrivateKeyFile    = "private-key-file"
-	flagAutoTrust         = "auto-trust"
+	flagSecurityMode    = "security-mode"
+	flagSecurityPolicy  = "security-policy"
+	flagAuthMode        = "auth-mode"
+	flagUsername        = "username"
+	flagPassword        = "password"
+	flagCertificateFile = "certificate-file"
+	flagPrivateKeyFile  = "private-key-file"
+	flagAutoTrust       = "auto-trust"
+
+	// Timeout flag names
+	flagDialTimeout            = "dial-timeout"
+	flagRequestTimeout         = "request-timeout"
+	flagSessionTimeout         = "session-timeout"
+	flagConnectionRetryTimeout = "connection-retry-timeout"
 
 	// Default values
 	defaultPort            = 9686
@@ -60,6 +66,12 @@ const (
 	defaultMaxTimeouts     = 0
 	defaultBufferSize      = 64
 	defaultSummaryInterval = 5 * time.Minute
+
+	// Default timeout values (matching current hardcoded values)
+	defaultDialTimeout            = 10 * time.Second
+	defaultRequestTimeout         = 5 * time.Second
+	defaultSessionTimeout         = 20 * time.Minute
+	defaultConnectionRetryTimeout = 5 * time.Minute
 
 	// HTTP server timeouts
 	httpReadTimeout  = 15 * time.Second
@@ -158,7 +170,13 @@ func parseFlags() (string, error) {
 	pflag.Duration(flagSummaryInterval, defaultSummaryInterval, "Event count summary interval")
 	pflag.Bool(flagSubscribeToTimeNode, false, "Subscribe to server time node")
 	pflag.StringArray(flagNode, []string{}, "Node mapping: 'nodeId,metricName[,extractBit]'")
-	
+
+	// Timeout flags
+	pflag.Duration(flagDialTimeout, defaultDialTimeout, "Timeout for establishing OPC UA connection")
+	pflag.Duration(flagRequestTimeout, defaultRequestTimeout, "Timeout for individual OPC UA service requests")
+	pflag.Duration(flagSessionTimeout, defaultSessionTimeout, "Requested session timeout (how long the session stays alive)")
+	pflag.Duration(flagConnectionRetryTimeout, defaultConnectionRetryTimeout, "Maximum total time to spend retrying connections")
+
 	// Security flags
 	pflag.String(flagSecurityMode, "None", "Security mode: None, Sign, SignAndEncrypt")
 	pflag.String(flagSecurityPolicy, "None", "Security policy: None, Basic128Rsa15, Basic256, Basic256Sha256")
@@ -168,7 +186,7 @@ func parseFlags() (string, error) {
 	pflag.String(flagCertificateFile, "", "Path to client certificate file (PEM format)")
 	pflag.String(flagPrivateKeyFile, "", "Path to client private key file (PEM format)")
 	pflag.Bool(flagAutoTrust, false, "Automatically trust server certificates (INSECURE - for testing only)")
-	
+
 	pflag.Parse()
 	return configFile, nil
 }
@@ -185,6 +203,7 @@ func loadAndApplyConfig(configFile string) (*config.Config, error) {
 	// Apply flag overrides in groups
 	applyBasicFlagOverrides(cfg)
 	applySecurityFlagOverrides(cfg)
+	applyTimeoutFlagOverrides(cfg)
 	if err := applyNodeFlagOverrides(cfg); err != nil {
 		return nil, err
 	}
@@ -249,6 +268,21 @@ func applySecurityFlagOverrides(cfg *config.Config) {
 	}
 }
 
+func applyTimeoutFlagOverrides(cfg *config.Config) {
+	if viper.IsSet(flagDialTimeout) {
+		cfg.Timeouts.DialTimeout = viper.GetDuration(flagDialTimeout)
+	}
+	if viper.IsSet(flagRequestTimeout) {
+		cfg.Timeouts.RequestTimeout = viper.GetDuration(flagRequestTimeout)
+	}
+	if viper.IsSet(flagSessionTimeout) {
+		cfg.Timeouts.SessionTimeout = viper.GetDuration(flagSessionTimeout)
+	}
+	if viper.IsSet(flagConnectionRetryTimeout) {
+		cfg.Timeouts.ConnectionRetryTimeout = viper.GetDuration(flagConnectionRetryTimeout)
+	}
+}
+
 func applyNodeFlagOverrides(cfg *config.Config) error {
 	nodeFlags := viper.GetStringSlice(flagNode)
 	for _, nodeFlag := range nodeFlags {
@@ -264,7 +298,7 @@ func applyNodeFlagOverrides(cfg *config.Config) error {
 }
 
 func setupOPCUAClient(ctx context.Context, cfg *config.Config) (*opcua.Client, error) {
-	connManager := connection.NewManager(cfg.Endpoint, cfg.Security, cfg.Debug)
+	connManager := connection.NewManager(cfg.Endpoint, cfg.Security, cfg.Timeouts, cfg.Debug)
 	return connManager.Connect(ctx)
 }
 

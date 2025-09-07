@@ -66,13 +66,23 @@ func (cm *CertificateManager) ExtractAndConvertCertificates(ctx context.Context,
 // extractRawCertificatesWithDockerAPI extracts certificate files from the container using Docker Go client
 func (cm *CertificateManager) extractRawCertificatesWithDockerAPI(ctx context.Context, containerID string) (*CertificateInfo, error) {
 	// Define the certificate paths within the container
+	// First, let's explore the full PKI structure to find all available certificates
 	certPaths := map[string]string{
 		"server_cert":  "/app/pki/own/certs",
 		"server_key":   "/app/pki/own/private",
 		"trusted_cert": "/app/pki/trusted/certs",
 	}
 
+	// We'll explore additional paths in the exploreContainerPKIStructure function
+
 	extractedFiles := make(map[string]string)
+
+	// Optional: explore PKI structure for debugging (can be removed for production)
+	// Uncomment the next 4 lines if you need to debug certificate structure:
+	// if err := cm.exploreContainerPKIStructure(ctx, containerID); err != nil {
+	//     // Don't fail if exploration fails, just log and continue
+	//     fmt.Printf("Warning: Could not explore PKI structure: %v\n", err)
+	// }
 
 	for certType, containerPath := range certPaths {
 		// First, find the actual filename in the directory using Docker API
@@ -339,4 +349,70 @@ func (cm *CertificateManager) convertDERToPEM(derPath, certType string) (string,
 	}
 
 	return pemPath, nil
+}
+
+// exploreContainerPKIStructure explores the container's PKI directory structure to find available certificates
+func (cm *CertificateManager) exploreContainerPKIStructure(ctx context.Context, containerID string) error {
+	// Explore the main PKI directory structure
+	pkiPaths := []string{
+		"/app/pki",
+		"/app/pki/own", 
+		"/app/pki/own/certs",
+		"/app/pki/own/private",
+		"/app/pki/trusted",
+		"/app/pki/trusted/certs",
+		"/app/pki/rejected",
+		"/app/pki/rejected/certs",
+		"/app/pki/issuer",
+		"/app/pki/issuer/certs",
+		"/app/pki/issuer/private",
+	}
+
+	fmt.Printf("Exploring container PKI structure:\n")
+	for _, path := range pkiPaths {
+		if err := cm.listDirectoryContents(ctx, containerID, path); err != nil {
+			fmt.Printf("  %s: Not accessible or empty\n", path)
+		}
+	}
+
+	return nil
+}
+
+// listDirectoryContents lists the contents of a directory in the container
+func (cm *CertificateManager) listDirectoryContents(ctx context.Context, containerID, dirPath string) error {
+	// Create an exec configuration to list directory contents
+	execConfig := container.ExecOptions{
+		Cmd:          []string{"ls", "-la", dirPath},
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+
+	// Create the exec instance
+	execIDResp, err := cm.dockerClient.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create exec for directory listing: %w", err)
+	}
+
+	// Attach to the exec instance
+	attachResp, err := cm.dockerClient.ContainerExecAttach(ctx, execIDResp.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to attach to exec: %w", err)
+	}
+	defer attachResp.Close()
+
+	// Read the output to get the directory listing
+	var buf bytes.Buffer
+	if _, err := stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader); err != nil {
+		return fmt.Errorf("failed to read exec output: %w", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output != "" {
+		fmt.Printf("  %s:\n", dirPath)
+		for _, line := range strings.Split(output, "\n") {
+			fmt.Printf("    %s\n", line)
+		}
+	}
+
+	return nil
 }

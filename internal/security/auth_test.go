@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gopcua/opcua/ua"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -128,7 +129,7 @@ func TestValidateSecurityConfig(t *testing.T) {
 	}
 }
 
-func TestSecurityEndpointSelector_parseSecurityMode(t *testing.T) {
+func TestEndpointSelector_parseSecurityMode(t *testing.T) {
 	tests := []struct {
 		name         string
 		securityMode string
@@ -163,7 +164,7 @@ func TestSecurityEndpointSelector_parseSecurityMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selector := NewSecurityEndpointSelector(tt.securityMode, SecurityPolicyNone, AuthModeAnonymous, false)
+			selector := NewEndpointSelector(tt.securityMode, SecurityPolicyNone, AuthModeAnonymous, false)
 			result, err := selector.parseSecurityMode()
 
 			if tt.expectError {
@@ -176,7 +177,7 @@ func TestSecurityEndpointSelector_parseSecurityMode(t *testing.T) {
 	}
 }
 
-func TestSecurityEndpointSelector_parseSecurityPolicy(t *testing.T) {
+func TestEndpointSelector_parseSecurityPolicy(t *testing.T) {
 	tests := []struct {
 		name           string
 		securityPolicy string
@@ -217,7 +218,7 @@ func TestSecurityEndpointSelector_parseSecurityPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selector := NewSecurityEndpointSelector(SecurityModeNone, tt.securityPolicy, AuthModeAnonymous, false)
+			selector := NewEndpointSelector(SecurityModeNone, tt.securityPolicy, AuthModeAnonymous, false)
 			result, err := selector.parseSecurityPolicy()
 
 			if tt.expectError {
@@ -230,7 +231,7 @@ func TestSecurityEndpointSelector_parseSecurityPolicy(t *testing.T) {
 	}
 }
 
-func TestSecurityEndpointSelector_isAuthModeSupported(t *testing.T) {
+func TestEndpointSelector_isAuthModeSupported(t *testing.T) {
 	// Create test endpoints with different authentication tokens
 	anonymousEndpoint := &ua.EndpointDescription{
 		UserIdentityTokens: []*ua.UserTokenPolicy{
@@ -327,7 +328,7 @@ func TestSecurityEndpointSelector_isAuthModeSupported(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selector := NewSecurityEndpointSelector(SecurityModeNone, SecurityPolicyNone, tt.authMode, false)
+			selector := NewEndpointSelector(SecurityModeNone, SecurityPolicyNone, tt.authMode, false)
 			result := selector.isAuthModeSupported(tt.endpoint)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -487,9 +488,9 @@ func TestCreateInsecureClientOptions(t *testing.T) {
 		authConfig := AuthConfig{
 			Mode: AuthModeAnonymous,
 		}
-		
-		options, err := CreateInsecureClientOptions(authConfig, false)
-		
+
+		options, err := CreateInsecureClientOptions(authConfig, config.ConnectionTimeouts{}, false)
+
 		assert.NoError(t, err)
 		assert.NotEmpty(t, options)
 	})
@@ -500,9 +501,9 @@ func TestCreateInsecureClientOptions(t *testing.T) {
 			Username: "testuser",
 			Password: "testpass",
 		}
-		
-		options, err := CreateInsecureClientOptions(authConfig, false)
-		
+
+		options, err := CreateInsecureClientOptions(authConfig, config.ConnectionTimeouts{}, false)
+
 		assert.NoError(t, err)
 		assert.NotEmpty(t, options)
 	})
@@ -513,9 +514,9 @@ func TestCreateInsecureClientOptions(t *testing.T) {
 			CertificateFile: "nonexistent.pem",
 			PrivateKeyFile:  "nonexistent.pem",
 		}
-		
-		options, err := CreateInsecureClientOptions(authConfig, false)
-		
+
+		options, err := CreateInsecureClientOptions(authConfig, config.ConnectionTimeouts{}, false)
+
 		assert.Error(t, err)
 		assert.Nil(t, options)
 		assert.Contains(t, err.Error(), "failed to load certificate")

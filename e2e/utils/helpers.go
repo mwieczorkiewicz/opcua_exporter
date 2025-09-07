@@ -318,7 +318,7 @@ func (p *httpReadinessProbeWithExponentialBackoff) Ready(runnable e2e.Runnable) 
 	}
 
 	bo := createStandardBackoffConfig()
-	_, err := backoff.Retry(ctx, operation, backoff.WithBackOff(bo))
+	_, err := backoff.Retry(ctx, operation, backoff.WithBackOff(bo), backoff.WithMaxElapsedTime(p.fallbackTimeout))
 	if err != nil {
 		return fmt.Errorf("timeout waiting for HTTP readiness probe on %s%s after %v: %w",
 			p.scheme, endpoint, p.fallbackTimeout, err)
