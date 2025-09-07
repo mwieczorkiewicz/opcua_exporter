@@ -57,16 +57,13 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             # Short commit SHA with sanitized branch prefix
-            type=sha,format=short,prefix={{sanitize}}-
+            type=sha,format=short,prefix={{branch | replace '/' '-' | lower}}-
             # Latest tag only for main branch
             type=raw,value=latest,enable={{is_default_branch}}
           flavor: |
             latest=false
             prefix=
             suffix=
-          # Enable automatic sanitization of branch names
-          transform: |
-            {{replace branch "/" "-"}}
 
       - name: Build and push to GHCR
         id: build
