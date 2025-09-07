@@ -29,7 +29,9 @@ jobs:
             # Replace / with - and ensure the version doesn't start with a dash
             VERSION=$(echo "$BRANCH_NAME" | sed -r 's#/+#-#g' | sed 's/^-/branch-/')
           elif [[ $GITHUB_REF == refs/pull/* ]]; then
-            VERSION=pr-${GITHUB_REF#refs/pull/}
+            PR_NUMBER=${GITHUB_REF#refs/pull/}
+            PR_NUMBER=${PR_NUMBER%/merge}
+            VERSION=pr-${PR_NUMBER}
           fi
           TAGS="${DOCKER_IMAGE}:${VERSION}"
           if [ "${{ github.event_name }}" = "push" ]; then
