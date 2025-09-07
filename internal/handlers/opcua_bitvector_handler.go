@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"bytes"
@@ -10,8 +10,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// OpcuaBitVectorHandler extracts a single bit from an UPCUA Variant value
-// and sets a prometheus guage to the coresponding value: 0.0 or 1.0.
+// OpcuaBitVectorHandler extracts a single bit from an OPC UA Variant value
+// and sets a prometheus gauge to the corresponding value: 0.0 or 1.0.
 // The bit indexing starts at zero, which represents the least significant bit.
 // So, for the 32-bit hex value 0xF0F10F0F, if we're asked for bit 16,
 // we want the bit shown below in parentheses:
@@ -20,6 +20,18 @@ type OpcuaBitVectorHandler struct {
 	gauge      prometheus.Gauge
 	extractBit int // identifies the bit to extract. little endian bit & byte order.
 	debug      bool
+}
+
+// NewOpcuaBitVectorHandler creates a new OpcuaBitVectorHandler with the specified gauge, bit to extract, and debug flag.
+// The gauge is used to set the value of the extracted bit.
+// The extractBit specifies which bit to extract from the Variant value.
+// The debug flag enables logging of the extracted bit value.
+func NewOpcuaBitVectorHandler(g prometheus.Gauge, extractBit int, debug bool) OpcuaBitVectorHandler {
+	return OpcuaBitVectorHandler{
+		gauge:      g,
+		extractBit: extractBit,
+		debug:      debug,
+	}
 }
 
 // Handle computes the float value and emit it as a prometheus metric.
@@ -81,7 +93,7 @@ func extractBit(bytes []byte, bit int) (byte, error) {
 	if byteIdx > len(bytes)-1 {
 		return 0, fmt.Errorf("Bit %d out of range for %d-byte value", bit, len(bytes))
 	}
-	bite := bytes[byteIdx]
-	bitValue := (bite & (0x01 << bitIdx)) >> bitIdx
+	byte := bytes[byteIdx]
+	bitValue := (byte & (0x01 << bitIdx)) >> bitIdx
 	return bitValue, nil
 }

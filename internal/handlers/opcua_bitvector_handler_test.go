@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"testing"
@@ -16,7 +16,7 @@ func getTestExtractHandler(extractBit int) OpcuaBitVectorHandler {
 
 func TestHandleBitVector(t *testing.T) {
 	type testCase struct {
-		value interface{}
+		value any
 		bit   int
 		want  float64
 	}
@@ -65,7 +65,7 @@ func TestHandleBitVector(t *testing.T) {
 
 	// Various non-integer objects shold error out
 	type errorCase struct {
-		value      interface{}
+		value      any
 		extractBit int
 	}
 	errorCases := []errorCase{
@@ -86,7 +86,7 @@ func TestHandleBitVector(t *testing.T) {
 
 func TestVariantToByteArray(t *testing.T) {
 	type testCase struct {
-		value interface{}
+		value any
 		want  []byte
 	}
 

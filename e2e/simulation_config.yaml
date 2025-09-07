@@ -1,0 +1,10 @@
+port: 9686
+endpoint: "opc.tcp://opcua-server:4840"
+debug: true
+nodes:
+  - nodeName: ns=21;i=1244
+    metricName: flow_indicator_output
+  - nodeName: ns=21;i=1259
+    metricName: level_indicator_output
+  - nodeName: ns=21;i=1267
+    metricName: flow_indicator_2_output

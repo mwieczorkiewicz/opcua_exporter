@@ -1,15 +1,9 @@
-FROM golang:1.24.0-bullseye as go
-
-FROM go as tester
-COPY . /build
+FROM cgr.dev/chainguard/go AS builder
 WORKDIR /build
-RUN go test
-
-FROM go as builder
-COPY --from=tester /build /build
-COPY --from=tester /go /go
-WORKDIR /build
-RUN CGO_ENABLED=0 GOOS=linux go build -o opcua_exporter .
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o opcua_exporter ./cmd/opcua_exporter
 
 FROM scratch
 WORKDIR /

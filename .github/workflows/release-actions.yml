@@ -2,11 +2,14 @@ name: Publish Release Binaries
 on:
   release:
     types: [created]
+
 jobs:
   publish_binaries:
     name: Build binaries and attach them to the release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     if: github.event.release
+    permissions:
+      contents: write  # Required for uploading release assets
     strategy:
       matrix:
         goos:
@@ -14,7 +17,7 @@ jobs:
           - darwin
           - windows
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: wangyoucao577/go-release-action@v1.53
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -5,6 +5,8 @@ import (
 
 	"github.com/gopcua/opcua/monitor"
 	"github.com/gopcua/opcua/ua"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/metrics"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,25 +35,25 @@ func makeTestMessage(nodeID *ua.NodeID) monitor.DataChangeMessage {
 	}
 }
 
-// Excercise the handleMessage() function
+// Exercise the handleMessage() function
 // Ensure that it dispatches messages to handlers as expected
 func TestHandleMessage(t *testing.T) {
 	nodeID1 := ua.NewStringNodeID(1, "foo")
 	nodeID2 := ua.NewStringNodeID(1, "bar")
 	nodeName1 := nodeID1.String()
 	nodeName2 := nodeID2.String()
-	handlerMap := make(HandlerMap)
-	for i := 0; i < 3; i++ {
-		mapRecord := handlerMapRecord{
-			config:  NodeConfig{NodeName: nodeName1, MetricName: "whatever"},
-			handler: &mockHandler{},
+	handlerMap := make(map[string][]metrics.HandlerRecord)
+	for range 3 {
+		mapRecord := metrics.HandlerRecord{
+			Config:  config.NodeMapping{NodeName: nodeName1, MetricName: "whatever"},
+			Handler: &mockHandler{},
 		}
 		handlerMap[nodeName1] = append(handlerMap[nodeName1], mapRecord)
 	}
 
-	mapRecord2 := handlerMapRecord{
-		config:  NodeConfig{NodeName: nodeName2, MetricName: "whatever"},
-		handler: &mockHandler{},
+	mapRecord2 := metrics.HandlerRecord{
+		Config:  config.NodeMapping{NodeName: nodeName2, MetricName: "whatever"},
+		Handler: &mockHandler{},
 	}
 	handlerMap[nodeName2] = append(handlerMap[nodeName2], mapRecord2)
 
@@ -60,24 +62,23 @@ func TestHandleMessage(t *testing.T) {
 
 	// Handle a fake message addressed to nodeID1
 	msg := makeTestMessage(nodeID1)
-	handleMessage(&msg, handlerMap)
+	handleMessage(&msg, handlerMap, false)
 
 	// All three nodeName1 handlers should have been called
 	for _, record := range handlerMap[nodeName1] {
-		handler := record.handler.(*mockHandler)
+		handler := record.Handler.(*mockHandler)
 		assert.True(t, handler.called)
 	}
 
 	// But not the nodeName2 handler
-	handler := handlerMap[nodeName2][0].handler.(*mockHandler)
+	handler := handlerMap[nodeName2][0].Handler.(*mockHandler)
 	assert.False(t, handler.called)
-
 }
 
-// Exercise the createMetrics() function
-// Ensure that it creats the right sort of HandlerMap
-func TestCreateMetrics(t *testing.T) {
-	nodeconfigs := []NodeConfig{
+// Exercise the metrics registry functionality
+// Ensure that it creates the right sort of HandlerMap
+func TestMetricsRegistry(t *testing.T) {
+	nodeconfigs := []config.NodeMapping{
 		{
 			NodeName:   "foo",
 			MetricName: "foo_level_blorbs",
@@ -92,7 +93,11 @@ func TestCreateMetrics(t *testing.T) {
 		},
 	}
 
-	handlerMap := createMetrics(&nodeconfigs)
+	registry := metrics.NewRegistry()
+	err := registry.CreateFromNodeMappings(nodeconfigs, "", false)
+	assert.NoError(t, err)
+	
+	handlerMap := registry.GetHandlerMap()
 	assert.Equal(t, len(handlerMap), 2)
 	assert.Equal(t, len(handlerMap["foo"]), 2)
 	assert.Equal(t, len(handlerMap["bar"]), 1)
