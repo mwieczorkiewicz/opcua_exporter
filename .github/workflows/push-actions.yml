@@ -57,7 +57,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             # Short commit SHA with sanitized branch prefix
-            type=sha,format=short,prefix={{branch}}-
+            type=sha,format=short,prefix={{sanitize}}-
             # Latest tag only for main branch
             type=raw,value=latest,enable={{is_default_branch}}
           flavor: |
