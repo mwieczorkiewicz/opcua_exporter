@@ -64,9 +64,6 @@ jobs:
             latest=false
             prefix=
             suffix=
-            # Disable automatic tag generation
-            labels=false
-            tags=false
 
       - name: Build and push to GHCR
         id: build
