@@ -25,4 +25,4 @@ jobs:
           goarch: amd64
           goos: ${{ matrix.goos }}
           binary_name: opcua_exporter
-          workdir: ./cmd/opcua_exporter
+          project_path: ./cmd/opcua_exporter
