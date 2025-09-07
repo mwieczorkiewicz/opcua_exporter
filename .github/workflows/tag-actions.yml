@@ -1,7 +1,11 @@
 
 name: Tag Actions
 on:
-  create
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
   push_to_registry:
@@ -12,8 +16,7 @@ jobs:
       packages: write     # Required to push Docker images to GHCR
     steps:
       - uses: actions/checkout@v4
-      -
-        name: Prepare
+      - name: Prepare
         id: prep
         run: |
           DOCKER_IMAGE=ghcr.io/mwieczorkiewicz/opcua_exporter
@@ -22,7 +25,9 @@ jobs:
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
           elif [[ $GITHUB_REF == refs/heads/* ]]; then
-            VERSION=$(echo ${GITHUB_REF#refs/heads/} | sed -r 's#/+#-#g')
+            BRANCH_NAME=${GITHUB_REF#refs/heads/}
+            # Replace / with - and ensure the version doesn't start with a dash
+            VERSION=$(echo "$BRANCH_NAME" | sed -r 's#/+#-#g' | sed 's/^-/branch-/')
           elif [[ $GITHUB_REF == refs/pull/* ]]; then
             VERSION=pr-${GITHUB_REF#refs/pull/}
           fi
@@ -33,9 +38,9 @@ jobs:
           if [[ $VERSION =~ $SEMVER_REGEX ]]; then
             TAGS="$TAGS,${DOCKER_IMAGE}:latest"
           fi
-          echo ::set-output name=version::${VERSION}
-          echo ::set-output name=tags::${TAGS}
-          echo ::set-output name=created::$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to GitHub container registry
