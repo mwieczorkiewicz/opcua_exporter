@@ -56,7 +56,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Short commit SHA with sanitized branch prefix
+            # Only generate SHA-based tags with sanitized branch prefix
             type=sha,format=short,prefix={{branch | replace '/' '-' | lower}}-
             # Latest tag only for main branch
             type=raw,value=latest,enable={{is_default_branch}}
@@ -64,6 +64,9 @@ jobs:
             latest=false
             prefix=
             suffix=
+            # Disable automatic tag generation
+            labels=false
+            tags=false
 
       - name: Build and push to GHCR
         id: build
