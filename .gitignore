@@ -6,3 +6,5 @@ opcua_exporter
 !cmd/opcua_exporter 
 CLAUDE.md
 e2e/e2e_*
+e2e/simulation_config.yaml
+e2e/*.pem
