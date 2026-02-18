@@ -12,9 +12,10 @@ import (
 
 // NodeMapping : Structure for representing mapping between OPCUA nodes and Prometheus metrics.
 type NodeMapping struct {
-	NodeName   string `yaml:"nodeName"`             // OPC UA node identifier
-	MetricName string `yaml:"metricName"`           // Prometheus metric name to emit
-	ExtractBit any    `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
+	NodeName   string            `yaml:"nodeName"`             // OPC UA node identifier
+	MetricName string            `yaml:"metricName"`           // Prometheus metric name to emit
+	ExtractBit any               `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
+	Labels     map[string]string `yaml:"labels,omitempty"`     // optional lables to add to metric
 }
 
 // Validate checks if the NodeMapping is valid

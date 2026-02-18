@@ -13,6 +13,7 @@ This is a Prometheus exporter for the [OPC Unified Architecture](https://en.wiki
 - **Enhanced node mapping** - Direct node configuration without separate files
 - **Security & authentication** - Full OPC UA encryption and authentication support
 - **Improved maintainability** - Better code organization and comprehensive testing - including E2E tests.
+- **Metric labels support** - Add option to specify prometheus labels to generated metrics. 
 
 It uses [gopcua/opcua](https://github.com/gopcua/opcua) to communicate with an OPCUA endpoint, subscribes to
 selected channels, and republishes them as Prometheus metrics on a port of your choice.

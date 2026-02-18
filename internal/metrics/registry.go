@@ -39,8 +39,9 @@ func (r *Registry) RegisterNodeMapping(nodeMapping config.NodeMapping, promPrefi
 	}
 	
 	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: metricName,
-		Help: "From OPC UA",
+		Name:        metricName,
+		ConstLabels: nodeMapping.Labels,
+		Help:        "From OPC UA",
 	})
 	
 	if err := prometheus.Register(gauge); err != nil {
