@@ -17,6 +17,7 @@ type NodeMapping struct {
 	ExtractBit any               `yaml:"extractBit,omitempty"` // Optional numeric value. If present and positive, extract just this bit and emit it as a boolean metric
 	MetricHelp string            `yaml:"metricHelp,omitempty"` // Optional HELP string for metric
 	Labels     map[string]string `yaml:"labels,omitempty"`     // optional lables to add to metric
+	InfoLabel  string            `yaml:"infoLabel,omitempty"`  // If set metric is considered info metric, value is wtitten into given label name, value is 1
 }
 
 // Validate checks if the NodeMapping is valid
