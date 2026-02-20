@@ -10,7 +10,7 @@ import (
 )
 
 func getTestHandler() OpcValueHandler {
-	var testGuage = prom.NewGauge(prom.GaugeOpts{Name: "foo"})
+	var testGuage = *prom.NewGaugeVec(prom.GaugeOpts{Name: "foo"}, nil)
 	return OpcValueHandler{testGuage}
 }
 

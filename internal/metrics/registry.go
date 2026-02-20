@@ -43,11 +43,12 @@ func (r *Registry) RegisterNodeMapping(nodeMapping config.NodeMapping, promPrefi
 		helpText = nodeMapping.MetricHelp
 	}
 
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+	var labels []string = nil
+	gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        metricName,
 		ConstLabels: nodeMapping.Labels,
 		Help:        helpText,
-	})
+	}, labels)
 	
 	if err := prometheus.Register(gauge); err != nil {
 		return errors.NewMetricError(metricName, nodeMapping.NodeName, err)
@@ -59,9 +60,9 @@ func (r *Registry) RegisterNodeMapping(nodeMapping config.NodeMapping, promPrefi
 		if !ok {
 			return errors.NewConfigError("extractBit", nodeMapping.ExtractBit, fmt.Errorf("extractBit must be an integer, got %T", nodeMapping.ExtractBit))
 		}
-		handler = handlers.NewOpcuaBitVectorHandler(gauge, extractBit, debug)
+		handler = handlers.NewOpcuaBitVectorHandler(*gauge, extractBit, debug)
 	} else {
-		handler = handlers.NewOpcValueHandler(gauge)
+		handler = handlers.NewOpcValueHandler(*gauge)
 	}
 
 	record := HandlerRecord{

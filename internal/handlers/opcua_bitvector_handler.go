@@ -17,7 +17,7 @@ import (
 // we want the bit shown below in parentheses:
 // 11110000 1111000(1) 00001111 00001111
 type OpcuaBitVectorHandler struct {
-	gauge      prometheus.Gauge
+	gauge      prometheus.GaugeVec
 	extractBit int // identifies the bit to extract. little endian bit & byte order.
 	debug      bool
 }
@@ -26,7 +26,7 @@ type OpcuaBitVectorHandler struct {
 // The gauge is used to set the value of the extracted bit.
 // The extractBit specifies which bit to extract from the Variant value.
 // The debug flag enables logging of the extracted bit value.
-func NewOpcuaBitVectorHandler(g prometheus.Gauge, extractBit int, debug bool) OpcuaBitVectorHandler {
+func NewOpcuaBitVectorHandler(g prometheus.GaugeVec, extractBit int, debug bool) OpcuaBitVectorHandler {
 	return OpcuaBitVectorHandler{
 		gauge:      g,
 		extractBit: extractBit,
@@ -43,7 +43,7 @@ func (h OpcuaBitVectorHandler) Handle(v ua.Variant) error {
 	if h.debug {
 		log.Printf("Extracted bit number %d: value=%d", h.extractBit, int(floatVal))
 	}
-	h.gauge.Set(floatVal)
+	h.gauge.WithLabelValues().Set(floatVal)
 	return nil
 }
 
