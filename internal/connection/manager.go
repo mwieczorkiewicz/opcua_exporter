@@ -168,9 +168,11 @@ func (m *Manager) connectWithEndpointDiscovery(ctx context.Context) (*opcua.Clie
 		return nil, fmt.Errorf("failed to create discovery client: %w", err)
 	}
 
-	// Step 2: Connect discovery client to get endpoints
-	if err := discoveryClient.Connect(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect discovery client: %w", err)
+	// Step 2: Open secure channel only (Dial). GetEndpoints does not require a
+	// session; Connect would send CreateSession and some servers
+	// that mandate SignAndEncrypt reject that on an insecure channel.
+	if err := discoveryClient.Dial(ctx); err != nil {
+		return nil, fmt.Errorf("failed to dial discovery client: %w", err)
 	}
 	defer discoveryClient.Close(ctx) // Clean up discovery client
 
@@ -221,8 +223,10 @@ func (m *Manager) connectWithEndpointDiscovery(ctx context.Context) (*opcua.Clie
 		return nil, fmt.Errorf("failed to create secure client options: %w", err)
 	}
 
-	// Use the selected endpoint's URL
-	client, err := opcua.NewClient(selectedEndpoint.EndpointURL, options...)
+	// Use the configured endpoint URL for the TCP connection. GetEndpoints may
+	// return a hostname that cluster DNS cannot resolve;
+	// security parameters already come from selectedEndpoint via options above.
+	client, err := opcua.NewClient(m.endpoint, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create secure OPC UA client: %w", err)
 	}
