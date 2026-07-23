@@ -201,6 +201,30 @@ func TestManager_needsEndpointDiscovery(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "username with client cert on encrypted channel (Hall B restore)",
+			config: config.SecurityConfig{
+				SecurityMode:    security.SecurityModeSignAndEncrypt,
+				SecurityPolicy:  security.SecurityPolicyBasic256Sha256,
+				AuthMode:        security.AuthModeUsername,
+				Username:        "cmd",
+				Password:        "secret",
+				CertificateFile: "/opcua-certs/client-cert.pem",
+				PrivateKeyFile:  "/opcua-certs/client-key.pem",
+			},
+			want: true,
+		},
+		{
+			name: "certificate identity auth requires discovery even on none channel",
+			config: config.SecurityConfig{
+				SecurityMode:    security.SecurityModeNone,
+				SecurityPolicy:  security.SecurityPolicyNone,
+				AuthMode:        security.AuthModeCertificate,
+				CertificateFile: "/opcua-certs/client-cert.pem",
+				PrivateKeyFile:  "/opcua-certs/client-key.pem",
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
