@@ -202,7 +202,7 @@ func TestManager_needsEndpointDiscovery(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "username with client cert on encrypted channel (Hall B restore)",
+			name: "username with client cert on encrypted channel",
 			config: config.SecurityConfig{
 				SecurityMode:    security.SecurityModeSignAndEncrypt,
 				SecurityPolicy:  security.SecurityPolicyBasic256Sha256,
