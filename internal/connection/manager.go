@@ -43,18 +43,20 @@ func (m *Manager) Connect(ctx context.Context) (*opcua.Client, error) {
 			return nil, backoff.Permanent(errors.NewConnectionError(m.endpoint, fmt.Errorf("security configuration validation failed: %w", err)))
 		}
 
-		// For secure connections, discover endpoints first
-		if m.securityConfig.SecurityMode != security.SecurityModeNone {
+		// Discover endpoints when using encryption/signing, or whenever username/certificate
+		// auth is configured. gopcua requires the server's UserToken PolicyID (from
+		// GetEndpoints); without it some servers return StatusBadIdentityTokenInvalid.
+		if m.needsEndpointDiscovery() {
 			client, err := m.connectWithEndpointDiscovery(ctx)
 			if err != nil {
-				log.Printf("Secure connection failed: %v", err)
+				log.Printf("Connection with endpoint discovery failed: %v", err)
 				return nil, errors.NewConnectionError(m.endpoint, err)
 			}
-			log.Print("Connected successfully to OPC UA server with security")
+			log.Print("Connected successfully to OPC UA server")
 			return client, nil
 		}
 
-		// For insecure connections, use simple flow
+		// Anonymous + SecurityMode None can connect without GetEndpoints.
 		client, err := m.connectInsecure(ctx)
 		if err != nil {
 			log.Printf("Connection failed: %v", err)
@@ -130,6 +132,14 @@ func (m *Manager) validateSecurityConfig() error {
 	m.logSecurityIssues(authConfig)
 
 	return nil
+}
+
+func (m *Manager) needsEndpointDiscovery() bool {
+	if m.securityConfig.SecurityMode != security.SecurityModeNone {
+		return true
+	}
+	return m.securityConfig.AuthMode != security.AuthModeAnonymous &&
+		m.securityConfig.AuthMode != ""
 }
 
 // connectInsecure creates and connects an insecure client
