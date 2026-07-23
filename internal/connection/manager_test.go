@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
+	"github.com/mwieczorkiewicz/opcua_exporter/internal/security"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -161,6 +162,53 @@ func TestManager_Close(t *testing.T) {
 	// Close should work even with nil client
 	err := manager.Close(ctx)
 	assert.NoError(t, err)
+}
+
+func TestManager_needsEndpointDiscovery(t *testing.T) {
+	tests := []struct {
+		name   string
+		config config.SecurityConfig
+		want   bool
+	}{
+		{
+			name: "anonymous none skips discovery",
+			config: config.SecurityConfig{
+				SecurityMode:   security.SecurityModeNone,
+				SecurityPolicy: security.SecurityPolicyNone,
+				AuthMode:       security.AuthModeAnonymous,
+			},
+			want: false,
+		},
+		{
+			name: "username none requires discovery",
+			config: config.SecurityConfig{
+				SecurityMode:   security.SecurityModeNone,
+				SecurityPolicy: security.SecurityPolicyNone,
+				AuthMode:       security.AuthModeUsername,
+				Username:       "cmd",
+				Password:       "secret",
+			},
+			want: true,
+		},
+		{
+			name: "sign and encrypt requires discovery",
+			config: config.SecurityConfig{
+				SecurityMode:   security.SecurityModeSignAndEncrypt,
+				SecurityPolicy: security.SecurityPolicyBasic256Sha256,
+				AuthMode:       security.AuthModeUsername,
+				Username:       "cmd",
+				Password:       "secret",
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewManager("opc.tcp://test:4840", tt.config, config.ConnectionTimeouts{}, false)
+			assert.Equal(t, tt.want, manager.needsEndpointDiscovery())
+		})
+	}
 }
 
 func TestManager_logSecurityIssues(t *testing.T) {
