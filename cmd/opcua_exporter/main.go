@@ -52,6 +52,7 @@ const (
 	flagCertificateFile = "certificate-file"
 	flagPrivateKeyFile  = "private-key-file"
 	flagAutoTrust       = "auto-trust"
+	flagAlwaysDiscover  = "always-discover-endpoints"
 
 	// Timeout flag names
 	flagDialTimeout            = "dial-timeout"
@@ -186,6 +187,7 @@ func parseFlags() (string, error) {
 	pflag.String(flagCertificateFile, "", "Path to client certificate file (PEM format)")
 	pflag.String(flagPrivateKeyFile, "", "Path to client private key file (PEM format)")
 	pflag.Bool(flagAutoTrust, false, "Automatically trust server certificates (INSECURE - for testing only)")
+	pflag.Bool(flagAlwaysDiscover, false, "Always perform endpoint discovery (GetEndpoints), even for Anonymous/SecurityMode=None")
 
 	pflag.Parse()
 	return configFile, nil
@@ -265,6 +267,9 @@ func applySecurityFlagOverrides(cfg *config.Config) {
 	}
 	if viper.IsSet(flagAutoTrust) {
 		cfg.Security.AutoTrust = viper.GetBool(flagAutoTrust)
+	}
+	if viper.IsSet(flagAlwaysDiscover) {
+		cfg.Security.AlwaysDiscoverEndpoints = viper.GetBool(flagAlwaysDiscover)
 	}
 }
 

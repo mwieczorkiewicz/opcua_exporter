@@ -225,6 +225,16 @@ func TestManager_needsEndpointDiscovery(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "always discover endpoints forces discovery even for anonymous none",
+			config: config.SecurityConfig{
+				SecurityMode:            security.SecurityModeNone,
+				SecurityPolicy:          security.SecurityPolicyNone,
+				AuthMode:                security.AuthModeAnonymous,
+				AlwaysDiscoverEndpoints: true,
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {

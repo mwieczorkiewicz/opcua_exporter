@@ -135,6 +135,9 @@ func (m *Manager) validateSecurityConfig() error {
 }
 
 func (m *Manager) needsEndpointDiscovery() bool {
+	if m.securityConfig.AlwaysDiscoverEndpoints {
+		return true
+	}
 	if m.securityConfig.SecurityMode != security.SecurityModeNone {
 		return true
 	}
