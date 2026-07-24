@@ -103,6 +103,7 @@ type Config struct {
 	MaxTimeouts                 int                `yaml:"maxTimeouts" mapstructure:"maxTimeouts"`
 	BufferSize                  int                `yaml:"bufferSize" mapstructure:"bufferSize"`
 	MaxMonitoredItemsPerRequest int                `yaml:"maxMonitoredItemsPerRequest" mapstructure:"maxMonitoredItemsPerRequest"`
+	IgnoreSubscriptionErrors    bool               `yaml:"ignoreSubscriptionErrors" mapstructure:"ignoreSubscriptionErrors"`
 	SummaryInterval             time.Duration      `yaml:"summaryInterval" mapstructure:"summaryInterval"`
 	SubscribeToTimeNode         bool               `yaml:"subscribeToTimeNode" mapstructure:"subscribeToTimeNode"`
 	NodeMappings                []NodeMapping      `yaml:"nodes" mapstructure:"nodes"`
@@ -130,6 +131,7 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("maxTimeouts", 0)
 	v.SetDefault("bufferSize", 64)
 	v.SetDefault("maxMonitoredItemsPerRequest", 0)
+	v.SetDefault("ignoreSubscriptionErrors", false)
 	v.SetDefault("summaryInterval", 5*time.Minute)
 	v.SetDefault("subscribeToTimeNode", false)
 	v.SetDefault("nodes", []NodeMapping{})
@@ -160,6 +162,7 @@ func Load(configFile string) (*Config, error) {
 	v.BindEnv("maxTimeouts", "OPCUA_EXPORTER_MAX_TIMEOUTS")
 	v.BindEnv("bufferSize", "OPCUA_EXPORTER_BUFFER_SIZE")
 	v.BindEnv("maxMonitoredItemsPerRequest", "OPCUA_EXPORTER_MAX_MONITORED_ITEMS_PER_REQUEST")
+	v.BindEnv("ignoreSubscriptionErrors", "OPCUA_EXPORTER_IGNORE_SUBSCRIPTION_ERRORS")
 	v.BindEnv("summaryInterval", "OPCUA_EXPORTER_SUMMARY_INTERVAL")
 	v.BindEnv("subscribeToTimeNode", "OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE")
 

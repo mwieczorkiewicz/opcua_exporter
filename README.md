@@ -31,6 +31,7 @@ Usage of opcua_exporter:
       --config string               Path to a file from which to read the list of OPC UA nodes to monitor
       --debug                       Enable debug logging
       --endpoint string             OPC UA Endpoint to connect to. (default "opc.tcp://localhost:4096")
+      --ignore-subscription-errors  Log rejected/failed subscription nodes instead of exiting the exporter
       --max-monitored-items-per-request int   Max nodes added to a subscription per request (0 = no limit, all nodes in one request)
       --max-timeouts int            The exporter will quit trying after this many read timeouts (0 to disable).
       --node stringArray            Node mapping in format 'nodeId,metricName[,extractBit]' (can be repeated)
@@ -249,6 +250,7 @@ All configuration options can be set via environment variables with the `OPCUA_E
 | `OPCUA_EXPORTER_MAX_TIMEOUTS` | `--max-timeouts` | Max timeouts before quit | `0` (disabled) |
 | `OPCUA_EXPORTER_BUFFER_SIZE` | `--buffer-size` | Message receive buffer size | `64` |
 | `OPCUA_EXPORTER_MAX_MONITORED_ITEMS_PER_REQUEST` | `--max-monitored-items-per-request` | Max nodes added to a subscription per request (0 = no limit) | `0` |
+| `OPCUA_EXPORTER_IGNORE_SUBSCRIPTION_ERRORS` | `--ignore-subscription-errors` | Log rejected/failed subscription nodes instead of exiting the exporter | `false` |
 | `OPCUA_EXPORTER_SUMMARY_INTERVAL` | `--summary-interval` | Event count summary frequency | `5m` |
 | `OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE` | `--subscribe-to-time-node` | Subscribe to server time node | `false` |
 
