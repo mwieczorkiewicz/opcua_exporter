@@ -31,17 +31,18 @@ const (
 	timeNodeMetricName string = "opcua_server_time" // Metric name for server time
 
 	// Configuration flag names
-	flagPort                = "port"
-	flagEndpoint            = "endpoint"
-	flagPromPrefix          = "prom-prefix"
-	flagDebug               = "debug"
-	flagReadTimeout         = "read-timeout"
-	flagMaxTimeouts         = "max-timeouts"
-	flagBufferSize          = "buffer-size"
-	flagSummaryInterval     = "summary-interval"
-	flagSubscribeToTimeNode = "subscribe-to-time-node"
-	flagNode                = "node"
-	flagConfig              = "config"
+	flagPort                        = "port"
+	flagEndpoint                    = "endpoint"
+	flagPromPrefix                  = "prom-prefix"
+	flagDebug                       = "debug"
+	flagReadTimeout                 = "read-timeout"
+	flagMaxTimeouts                 = "max-timeouts"
+	flagBufferSize                  = "buffer-size"
+	flagMaxMonitoredItemsPerRequest = "max-monitored-items-per-request"
+	flagSummaryInterval             = "summary-interval"
+	flagSubscribeToTimeNode         = "subscribe-to-time-node"
+	flagNode                        = "node"
+	flagConfig                      = "config"
 
 	// Security flag names
 	flagSecurityMode    = "security-mode"
@@ -61,12 +62,13 @@ const (
 	flagConnectionRetryTimeout = "connection-retry-timeout"
 
 	// Default values
-	defaultPort            = 9686
-	defaultEndpoint        = "opc.tcp://localhost:4096"
-	defaultReadTimeout     = 5 * time.Second
-	defaultMaxTimeouts     = 0
-	defaultBufferSize      = 64
-	defaultSummaryInterval = 5 * time.Minute
+	defaultPort                        = 9686
+	defaultEndpoint                    = "opc.tcp://localhost:4096"
+	defaultReadTimeout                 = 5 * time.Second
+	defaultMaxTimeouts                 = 0
+	defaultBufferSize                  = 64
+	defaultMaxMonitoredItemsPerRequest = 0
+	defaultSummaryInterval             = 5 * time.Minute
 
 	// Default timeout values (matching current hardcoded values)
 	defaultDialTimeout            = 10 * time.Second
@@ -168,6 +170,7 @@ func parseFlags() (string, error) {
 	pflag.Duration(flagReadTimeout, defaultReadTimeout, "Timeout for OPCUA subscription messages")
 	pflag.Int(flagMaxTimeouts, defaultMaxTimeouts, "Max timeouts before quitting (0=disabled)")
 	pflag.Int(flagBufferSize, defaultBufferSize, "Message buffer size")
+	pflag.Int(flagMaxMonitoredItemsPerRequest, defaultMaxMonitoredItemsPerRequest, "Max nodes added to a subscription per CreateMonitoredItems request (0 = no limit, all nodes in one request)")
 	pflag.Duration(flagSummaryInterval, defaultSummaryInterval, "Event count summary interval")
 	pflag.Bool(flagSubscribeToTimeNode, false, "Subscribe to server time node")
 	pflag.StringArray(flagNode, []string{}, "Node mapping: 'nodeId,metricName[,extractBit]'")
@@ -234,6 +237,9 @@ func applyBasicFlagOverrides(cfg *config.Config) {
 	}
 	if viper.IsSet(flagBufferSize) {
 		cfg.BufferSize = viper.GetInt(flagBufferSize)
+	}
+	if viper.IsSet(flagMaxMonitoredItemsPerRequest) {
+		cfg.MaxMonitoredItemsPerRequest = viper.GetInt(flagMaxMonitoredItemsPerRequest)
 	}
 	if viper.IsSet(flagSummaryInterval) {
 		cfg.SummaryInterval = viper.GetDuration(flagSummaryInterval)
@@ -388,7 +394,7 @@ func main() {
 	}
 
 	go func() {
-		if err := setupMonitor(ctx, client, metricsRegistry.GetHandlerMap(), cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.Debug); err != nil {
+		if err := setupMonitor(ctx, client, metricsRegistry.GetHandlerMap(), cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.MaxMonitoredItemsPerRequest, cfg.Debug); err != nil {
 			app.shutdown(fmt.Errorf("error setting up monitor: %w", err))
 		}
 	}()
@@ -409,7 +415,7 @@ func getClient(endpoint *string) (*opcua.Client, error) {
 }
 
 // Subscribe to all the nodes and update the appropriate prometheus metrics on change
-func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[string][]metrics.HandlerRecord, bufferSize int, readTimeout time.Duration, maxTimeouts int, debug bool) error {
+func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[string][]metrics.HandlerRecord, bufferSize int, readTimeout time.Duration, maxTimeouts int, maxMonitoredItemsPerRequest int, debug bool) error {
 	m, err := monitor.NewNodeMonitor(client)
 	if err != nil {
 		return fmt.Errorf("failed to create node monitor: %w", err)
@@ -423,11 +429,15 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[stri
 
 	ch := make(chan *monitor.DataChangeMessage, bufferSize)
 	params := opcua.SubscriptionParameters{Interval: time.Second}
-	sub, err := m.ChanSubscribe(ctx, &params, ch, nodeList...)
+	sub, err := m.ChanSubscribe(ctx, &params, ch)
 	if err != nil {
 		return fmt.Errorf("failed to create subscription: %w", err)
 	}
 	defer cleanup(ctx, sub)
+
+	if err := addNodesInChunks(ctx, sub, nodeList, maxMonitoredItemsPerRequest); err != nil {
+		return fmt.Errorf("failed to add monitored items: %w", err)
+	}
 
 	timeoutCount := 0
 	for {
@@ -460,6 +470,22 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[stri
 		}
 	}
 
+}
+
+// addNodesInChunks adds nodes to the subscription in batches of at most chunkSize, since some
+// OPC UA servers reject CreateMonitoredItems requests above a certain size. chunkSize <= 0 means
+// no limit: all nodes are added in a single request.
+func addNodesInChunks(ctx context.Context, sub *monitor.Subscription, nodes []string, chunkSize int) error {
+	if chunkSize <= 0 {
+		return sub.AddNodes(ctx, nodes...)
+	}
+	for i := 0; i < len(nodes); i += chunkSize {
+		end := min(i+chunkSize, len(nodes))
+		if err := sub.AddNodes(ctx, nodes[i:end]...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func cleanup(ctx context.Context, sub *monitor.Subscription) {
