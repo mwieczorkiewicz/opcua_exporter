@@ -6,7 +6,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/efficientgo/core v1.0.0-rc.0
 	github.com/efficientgo/e2e v0.14.0
-	github.com/gopcua/opcua v0.8.0
+	github.com/gopcua/opcua v0.9.0
 	github.com/prometheus/client_golang v1.23.0
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.20.1
