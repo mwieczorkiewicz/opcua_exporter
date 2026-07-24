@@ -13,6 +13,8 @@ This is a Prometheus exporter for the [OPC Unified Architecture](https://en.wiki
 - **Enhanced node mapping** - Direct node configuration without separate files
 - **Security & authentication** - Full OPC UA encryption and authentication support
 - **Improved maintainability** - Better code organization and comprehensive testing - including E2E tests.
+- **Metric labels support** - Add option to specify prometheus labels to generated metrics.
+- **Info metric support** - Add option to return string values as a metril label value.
 
 It uses [gopcua/opcua](https://github.com/gopcua/opcua) to communicate with an OPCUA endpoint, subscribes to
 selected channels, and republishes them as Prometheus metrics on a port of your choice.
@@ -210,6 +212,9 @@ nodes:
   - nodeName: "ns=1;s=AlarmBits"
     metricName: "alarm_high_temp"
     extractBit: 2
+  - nodeName: "ns=1;s=AlertName"
+    metricName: "alert"
+    infoLabel: "name"
 ```
 
 ### 4. Legacy Configuration Files
@@ -318,6 +323,22 @@ nodes:
   - nodeName: "ns=1;s=AlarmBits"
     metricName: "circuit_breaker_alarm"
     extractBit: 5
+```
+
+## Info metrics
+
+You can return OPC-UA string values as a label value of an info metric. The value of this metric
+will always equal `1.0`. Currently each info metric can only return one label and thus one string
+value. To return multiple string values you need to define multiple nodes with multiple metricNames
+or differing labels.
+
+**YAML Config:**
+
+```yaml
+nodes:
+  - nodeName: "ns=1;s=AlertName"
+    metricName: "alert"
+    infoLabel: "name"
 ```
 
 ## Docker Usage

@@ -13,11 +13,11 @@ import (
 // OpcValueHandler handles generic OPC message values
 // Unfortunately, we don't know the message type at construction time.
 type OpcValueHandler struct {
-	gauge prometheus.Gauge
+	gauge prometheus.GaugeVec
 }
 
 // NewOpcValueHandler creates a new OpcValueHandler with the specified gauge.
-func NewOpcValueHandler(g prometheus.Gauge) OpcValueHandler {
+func NewOpcValueHandler(g prometheus.GaugeVec) OpcValueHandler {
 	return OpcValueHandler{
 		gauge: g,
 	}
@@ -30,7 +30,7 @@ func (h OpcValueHandler) Handle(v ua.Variant) error {
 	if err != nil {
 		return err
 	}
-	h.gauge.Set(floatVal)
+	h.gauge.WithLabelValues().Set(floatVal)
 	return nil
 }
 

@@ -3,10 +3,10 @@ package metrics
 import (
 	"fmt"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/config"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/errors"
 	"github.com/mwieczorkiewicz/opcua_exporter/internal/handlers"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Registry manages Prometheus metrics and their associated handlers
@@ -33,16 +33,25 @@ func (r *Registry) RegisterNodeMapping(nodeMapping config.NodeMapping, promPrefi
 	if metricName == "" {
 		return errors.NewConfigError("metricName", metricName, fmt.Errorf("metric name cannot be empty"))
 	}
-	
+
 	if promPrefix != "" {
 		metricName = fmt.Sprintf("%s_%s", promPrefix, metricName)
 	}
-	
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: metricName,
-		Help: "From OPC UA",
-	})
-	
+
+	helpText := "From OPC UA"
+	if nodeMapping.MetricHelp != "" {
+		helpText = nodeMapping.MetricHelp
+	}
+
+	var labels []string = nil
+	if nodeMapping.InfoLabel != "" {
+		labels = append(labels, nodeMapping.InfoLabel)
+	}
+	gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        metricName,
+		ConstLabels: nodeMapping.Labels,
+		Help:        helpText,
+	}, labels)
 	if err := prometheus.Register(gauge); err != nil {
 		return errors.NewMetricError(metricName, nodeMapping.NodeName, err)
 	}
@@ -53,16 +62,18 @@ func (r *Registry) RegisterNodeMapping(nodeMapping config.NodeMapping, promPrefi
 		if !ok {
 			return errors.NewConfigError("extractBit", nodeMapping.ExtractBit, fmt.Errorf("extractBit must be an integer, got %T", nodeMapping.ExtractBit))
 		}
-		handler = handlers.NewOpcuaBitVectorHandler(gauge, extractBit, debug)
+		handler = handlers.NewOpcuaBitVectorHandler(*gauge, extractBit, debug)
+	} else if nodeMapping.InfoLabel != "" {
+		handler = handlers.NewOpcInfoHandler(*gauge)
 	} else {
-		handler = handlers.NewOpcValueHandler(gauge)
+		handler = handlers.NewOpcValueHandler(*gauge)
 	}
 
 	record := HandlerRecord{
 		Config:  nodeMapping,
 		Handler: handler,
 	}
-	
+
 	r.handlerMap[nodeMapping.NodeName] = append(r.handlerMap[nodeMapping.NodeName], record)
 	return nil
 }
