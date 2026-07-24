@@ -23,6 +23,7 @@ selected channels, and republishes them as Prometheus metrics on a port of your 
 
 ```shell
 Usage of opcua_exporter:
+      --always-discover-endpoints   Always perform endpoint discovery (GetEndpoints), even for Anonymous/SecurityMode=None
       --auth-mode string            Authentication mode: Anonymous, Username, Certificate (default "Anonymous")
       --auto-trust                  Automatically trust server certificates (INSECURE - for testing only)
       --buffer-size int             Maximum number of messages in the receive buffer (default 64)
@@ -110,6 +111,7 @@ security:
   certificateFile: /path/to/client.pem
   privateKeyFile: /path/to/client-key.pem
   autoTrust: false  # Set to true for testing only - bypasses certificate validation
+  alwaysDiscoverEndpoints: false  # Set to true to force endpoint discovery even for Anonymous/SecurityMode=None
 ```
 
 ### Certificate Requirements
@@ -260,6 +262,7 @@ All configuration options can be set via environment variables with the `OPCUA_E
 | `OPCUA_EXPORTER_CERTIFICATE_FILE` | `--certificate-file` | Path to client certificate (PEM) | _(empty)_ |
 | `OPCUA_EXPORTER_PRIVATE_KEY_FILE` | `--private-key-file` | Path to private key (PEM) | _(empty)_ |
 | `OPCUA_EXPORTER_AUTO_TRUST` | `--auto-trust` | Auto-trust server certificates (insecure) | `false` |
+| `OPCUA_EXPORTER_ALWAYS_DISCOVER_ENDPOINTS` | `--always-discover-endpoints` | Always perform endpoint discovery (GetEndpoints), even for Anonymous/SecurityMode=None | `false` |
 
 ### Node Mapping Environment Variables
 

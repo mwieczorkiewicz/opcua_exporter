@@ -70,6 +70,11 @@ type SecurityConfig struct {
 
 	// AutoTrust automatically trusts server certificates (insecure - for testing only)
 	AutoTrust bool `yaml:"autoTrust,omitempty" mapstructure:"autoTrust"`
+
+	// AlwaysDiscoverEndpoints forces the endpoint discovery flow (GetEndpoints) even
+	// when security mode is None and auth mode is Anonymous. Some servers require
+	// discovery regardless of the configured security settings.
+	AlwaysDiscoverEndpoints bool `yaml:"alwaysDiscoverEndpoints,omitempty" mapstructure:"alwaysDiscoverEndpoints"`
 }
 
 // ConnectionTimeouts holds timeout configuration for OPC UA connections
@@ -132,6 +137,7 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("security.securityPolicy", "None")
 	v.SetDefault("security.authMode", "Anonymous")
 	v.SetDefault("security.autoTrust", false)
+	v.SetDefault("security.alwaysDiscoverEndpoints", false)
 
 	// Set timeout defaults (matching current hardcoded values)
 	v.SetDefault("timeouts.dialTimeout", 10*time.Second)
@@ -163,6 +169,7 @@ func Load(configFile string) (*Config, error) {
 	v.BindEnv("security.certificateFile", "OPCUA_EXPORTER_CERTIFICATE_FILE")
 	v.BindEnv("security.privateKeyFile", "OPCUA_EXPORTER_PRIVATE_KEY_FILE")
 	v.BindEnv("security.autoTrust", "OPCUA_EXPORTER_AUTO_TRUST")
+	v.BindEnv("security.alwaysDiscoverEndpoints", "OPCUA_EXPORTER_ALWAYS_DISCOVER_ENDPOINTS")
 
 	// Timeout settings
 	v.BindEnv("timeouts.dialTimeout", "OPCUA_EXPORTER_DIAL_TIMEOUT")

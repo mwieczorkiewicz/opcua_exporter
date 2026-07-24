@@ -38,6 +38,7 @@ func (s *SecurityConfigTestSuite) clearSecurityEnvVars() {
 		"OPCUA_EXPORTER_CERTIFICATE_FILE",
 		"OPCUA_EXPORTER_PRIVATE_KEY_FILE",
 		"OPCUA_EXPORTER_AUTO_TRUST",
+		"OPCUA_EXPORTER_ALWAYS_DISCOVER_ENDPOINTS",
 	}
 
 	for _, envVar := range envVars {
@@ -57,6 +58,7 @@ func (s *SecurityConfigTestSuite) TestSecurityConfigDefaults() {
 	s.Assert().Empty(cfg.Security.CertificateFile)
 	s.Assert().Empty(cfg.Security.PrivateKeyFile)
 	s.Assert().False(cfg.Security.AutoTrust)
+	s.Assert().False(cfg.Security.AlwaysDiscoverEndpoints)
 }
 
 func (s *SecurityConfigTestSuite) TestSecurityConfigFromYAML() {
@@ -72,6 +74,7 @@ security:
   certificateFile: /path/to/cert.pem
   privateKeyFile: /path/to/key.pem
   autoTrust: true
+  alwaysDiscoverEndpoints: true
 nodes:
   - nodeName: "ns=1;s=Test"
     metricName: "test_metric"
@@ -93,6 +96,7 @@ nodes:
 	s.Assert().Equal("/path/to/cert.pem", cfg.Security.CertificateFile)
 	s.Assert().Equal("/path/to/key.pem", cfg.Security.PrivateKeyFile)
 	s.Assert().True(cfg.Security.AutoTrust)
+	s.Assert().True(cfg.Security.AlwaysDiscoverEndpoints)
 
 	s.Require().Len(cfg.NodeMappings, 1)
 	s.Assert().Equal("ns=1;s=Test", cfg.NodeMappings[0].NodeName)
@@ -101,14 +105,15 @@ nodes:
 
 func (s *SecurityConfigTestSuite) TestSecurityConfigFromEnvironmentVariables() {
 	envVars := map[string]string{
-		"OPCUA_EXPORTER_SECURITY_MODE":      "Sign",
-		"OPCUA_EXPORTER_SECURITY_POLICY":   "Basic256",
-		"OPCUA_EXPORTER_AUTH_MODE":         "Certificate",
-		"OPCUA_EXPORTER_USERNAME":          "envuser",
-		"OPCUA_EXPORTER_PASSWORD":          "envpass",
-		"OPCUA_EXPORTER_CERTIFICATE_FILE":  "/env/path/cert.pem",
-		"OPCUA_EXPORTER_PRIVATE_KEY_FILE":  "/env/path/key.pem",
-		"OPCUA_EXPORTER_AUTO_TRUST":        "true",
+		"OPCUA_EXPORTER_SECURITY_MODE":             "Sign",
+		"OPCUA_EXPORTER_SECURITY_POLICY":           "Basic256",
+		"OPCUA_EXPORTER_AUTH_MODE":                 "Certificate",
+		"OPCUA_EXPORTER_USERNAME":                  "envuser",
+		"OPCUA_EXPORTER_PASSWORD":                  "envpass",
+		"OPCUA_EXPORTER_CERTIFICATE_FILE":          "/env/path/cert.pem",
+		"OPCUA_EXPORTER_PRIVATE_KEY_FILE":          "/env/path/key.pem",
+		"OPCUA_EXPORTER_AUTO_TRUST":                "true",
+		"OPCUA_EXPORTER_ALWAYS_DISCOVER_ENDPOINTS": "true",
 	}
 
 	for key, value := range envVars {
@@ -126,6 +131,7 @@ func (s *SecurityConfigTestSuite) TestSecurityConfigFromEnvironmentVariables() {
 	s.Assert().Equal("/env/path/cert.pem", cfg.Security.CertificateFile)
 	s.Assert().Equal("/env/path/key.pem", cfg.Security.PrivateKeyFile)
 	s.Assert().True(cfg.Security.AutoTrust)
+	s.Assert().True(cfg.Security.AlwaysDiscoverEndpoints)
 }
 
 func (s *SecurityConfigTestSuite) TestSecurityConfigPrecedence() {
