@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -39,6 +40,7 @@ const (
 	flagMaxTimeouts                 = "max-timeouts"
 	flagBufferSize                  = "buffer-size"
 	flagMaxMonitoredItemsPerRequest = "max-monitored-items-per-request"
+	flagIgnoreSubscriptionErrors    = "ignore-subscription-errors"
 	flagSummaryInterval             = "summary-interval"
 	flagSubscribeToTimeNode         = "subscribe-to-time-node"
 	flagNode                        = "node"
@@ -171,6 +173,7 @@ func parseFlags() (string, error) {
 	pflag.Int(flagMaxTimeouts, defaultMaxTimeouts, "Max timeouts before quitting (0=disabled)")
 	pflag.Int(flagBufferSize, defaultBufferSize, "Message buffer size")
 	pflag.Int(flagMaxMonitoredItemsPerRequest, defaultMaxMonitoredItemsPerRequest, "Max nodes added to a subscription per CreateMonitoredItems request (0 = no limit, all nodes in one request)")
+	pflag.Bool(flagIgnoreSubscriptionErrors, false, "Log rejected/failed subscription nodes instead of exiting the exporter")
 	pflag.Duration(flagSummaryInterval, defaultSummaryInterval, "Event count summary interval")
 	pflag.Bool(flagSubscribeToTimeNode, false, "Subscribe to server time node")
 	pflag.StringArray(flagNode, []string{}, "Node mapping: 'nodeId,metricName[,extractBit]'")
@@ -240,6 +243,9 @@ func applyBasicFlagOverrides(cfg *config.Config) {
 	}
 	if viper.IsSet(flagMaxMonitoredItemsPerRequest) {
 		cfg.MaxMonitoredItemsPerRequest = viper.GetInt(flagMaxMonitoredItemsPerRequest)
+	}
+	if viper.IsSet(flagIgnoreSubscriptionErrors) {
+		cfg.IgnoreSubscriptionErrors = viper.GetBool(flagIgnoreSubscriptionErrors)
 	}
 	if viper.IsSet(flagSummaryInterval) {
 		cfg.SummaryInterval = viper.GetDuration(flagSummaryInterval)
@@ -394,7 +400,7 @@ func main() {
 	}
 
 	go func() {
-		if err := setupMonitor(ctx, client, metricsRegistry.GetHandlerMap(), cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.MaxMonitoredItemsPerRequest, cfg.Debug); err != nil {
+		if err := setupMonitor(ctx, client, metricsRegistry.GetHandlerMap(), cfg.BufferSize, cfg.ReadTimeout, cfg.MaxTimeouts, cfg.MaxMonitoredItemsPerRequest, cfg.IgnoreSubscriptionErrors, cfg.Debug); err != nil {
 			app.shutdown(fmt.Errorf("error setting up monitor: %w", err))
 		}
 	}()
@@ -415,7 +421,7 @@ func getClient(endpoint *string) (*opcua.Client, error) {
 }
 
 // Subscribe to all the nodes and update the appropriate prometheus metrics on change
-func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[string][]metrics.HandlerRecord, bufferSize int, readTimeout time.Duration, maxTimeouts int, maxMonitoredItemsPerRequest int, debug bool) error {
+func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[string][]metrics.HandlerRecord, bufferSize int, readTimeout time.Duration, maxTimeouts int, maxMonitoredItemsPerRequest int, ignoreSubscriptionErrors bool, debug bool) error {
 	m, err := monitor.NewNodeMonitor(client)
 	if err != nil {
 		return fmt.Errorf("failed to create node monitor: %w", err)
@@ -435,7 +441,7 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[stri
 	}
 	defer cleanup(ctx, sub)
 
-	if err := addNodesInChunks(ctx, sub, nodeList, maxMonitoredItemsPerRequest); err != nil {
+	if err := addNodesInChunks(ctx, sub, nodeList, maxMonitoredItemsPerRequest, ignoreSubscriptionErrors); err != nil {
 		return fmt.Errorf("failed to add monitored items: %w", err)
 	}
 
@@ -474,18 +480,50 @@ func setupMonitor(ctx context.Context, client *opcua.Client, handlerMap map[stri
 
 // addNodesInChunks adds nodes to the subscription in batches of at most chunkSize, since some
 // OPC UA servers reject CreateMonitoredItems requests above a certain size. chunkSize <= 0 means
-// no limit: all nodes are added in a single request.
-func addNodesInChunks(ctx context.Context, sub *monitor.Subscription, nodes []string, chunkSize int) error {
+// no limit: all nodes are added in a single request. Every batch is attempted and every
+// rejected node is logged individually; if ignoreErrors is false the accumulated errors are
+// returned once all batches have been tried, otherwise they are only logged.
+func addNodesInChunks(ctx context.Context, sub *monitor.Subscription, nodes []string, chunkSize int, ignoreErrors bool) error {
 	if chunkSize <= 0 {
-		return sub.AddNodes(ctx, nodes...)
+		err := reportRejectedNodes(sub.AddNodes(ctx, nodes...))
+		if ignoreErrors {
+			return nil
+		}
+		return err
 	}
+	var errs []error
 	for i := 0; i < len(nodes); i += chunkSize {
 		end := min(i+chunkSize, len(nodes))
-		if err := sub.AddNodes(ctx, nodes[i:end]...); err != nil {
-			return err
+		if err := reportRejectedNodes(sub.AddNodes(ctx, nodes[i:end]...)); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	if ignoreErrors {
+		return nil
+	}
+	return errors.Join(errs...)
+}
+
+// reportRejectedNodes logs each node the server refused to monitor
+// (surfaced as monitor.ItemError since valid nodes in a batch now succeed
+// instead of the whole batch failing) individually, then returns the
+// error unchanged so the caller still fails setup once every batch has
+// been reported.
+func reportRejectedNodes(err error) error {
+	if err == nil {
+		return nil
+	}
+	var itemErr *monitor.ItemError
+	if errors.As(err, &itemErr) {
+		if joined, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, e := range joined.Unwrap() {
+				log.Printf("[error] node rejected by server: %s", e)
+			}
+		} else {
+			log.Printf("[error] node rejected by server: %s", err)
+		}
+	}
+	return err
 }
 
 func cleanup(ctx context.Context, sub *monitor.Subscription) {
