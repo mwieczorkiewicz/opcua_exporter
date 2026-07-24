@@ -94,19 +94,20 @@ type ConnectionTimeouts struct {
 
 // Config holds all configuration values for the OPC UA exporter
 type Config struct {
-	Port                int                `yaml:"port" mapstructure:"port"`
-	Endpoint            string             `yaml:"endpoint" mapstructure:"endpoint"`
-	PromPrefix          string             `yaml:"promPrefix" mapstructure:"promPrefix"`
-	ConfigFile          string             `yaml:"configFile" mapstructure:"config"`
-	Debug               bool               `yaml:"debug" mapstructure:"debug"`
-	ReadTimeout         time.Duration      `yaml:"readTimeout" mapstructure:"readTimeout"`
-	MaxTimeouts         int                `yaml:"maxTimeouts" mapstructure:"maxTimeouts"`
-	BufferSize          int                `yaml:"bufferSize" mapstructure:"bufferSize"`
-	SummaryInterval     time.Duration      `yaml:"summaryInterval" mapstructure:"summaryInterval"`
-	SubscribeToTimeNode bool               `yaml:"subscribeToTimeNode" mapstructure:"subscribeToTimeNode"`
-	NodeMappings        []NodeMapping      `yaml:"nodes" mapstructure:"nodes"`
-	Security            SecurityConfig     `yaml:"security" mapstructure:"security"`
-	Timeouts            ConnectionTimeouts `yaml:"timeouts" mapstructure:"timeouts"`
+	Port                        int                `yaml:"port" mapstructure:"port"`
+	Endpoint                    string             `yaml:"endpoint" mapstructure:"endpoint"`
+	PromPrefix                  string             `yaml:"promPrefix" mapstructure:"promPrefix"`
+	ConfigFile                  string             `yaml:"configFile" mapstructure:"config"`
+	Debug                       bool               `yaml:"debug" mapstructure:"debug"`
+	ReadTimeout                 time.Duration      `yaml:"readTimeout" mapstructure:"readTimeout"`
+	MaxTimeouts                 int                `yaml:"maxTimeouts" mapstructure:"maxTimeouts"`
+	BufferSize                  int                `yaml:"bufferSize" mapstructure:"bufferSize"`
+	MaxMonitoredItemsPerRequest int                `yaml:"maxMonitoredItemsPerRequest" mapstructure:"maxMonitoredItemsPerRequest"`
+	SummaryInterval             time.Duration      `yaml:"summaryInterval" mapstructure:"summaryInterval"`
+	SubscribeToTimeNode         bool               `yaml:"subscribeToTimeNode" mapstructure:"subscribeToTimeNode"`
+	NodeMappings                []NodeMapping      `yaml:"nodes" mapstructure:"nodes"`
+	Security                    SecurityConfig     `yaml:"security" mapstructure:"security"`
+	Timeouts                    ConnectionTimeouts `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // Load loads configuration from multiple sources in priority order:
@@ -128,6 +129,7 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("readTimeout", 5*time.Second)
 	v.SetDefault("maxTimeouts", 0)
 	v.SetDefault("bufferSize", 64)
+	v.SetDefault("maxMonitoredItemsPerRequest", 0)
 	v.SetDefault("summaryInterval", 5*time.Minute)
 	v.SetDefault("subscribeToTimeNode", false)
 	v.SetDefault("nodes", []NodeMapping{})
@@ -157,6 +159,7 @@ func Load(configFile string) (*Config, error) {
 	v.BindEnv("readTimeout", "OPCUA_EXPORTER_READ_TIMEOUT")
 	v.BindEnv("maxTimeouts", "OPCUA_EXPORTER_MAX_TIMEOUTS")
 	v.BindEnv("bufferSize", "OPCUA_EXPORTER_BUFFER_SIZE")
+	v.BindEnv("maxMonitoredItemsPerRequest", "OPCUA_EXPORTER_MAX_MONITORED_ITEMS_PER_REQUEST")
 	v.BindEnv("summaryInterval", "OPCUA_EXPORTER_SUMMARY_INTERVAL")
 	v.BindEnv("subscribeToTimeNode", "OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE")
 
@@ -303,6 +306,7 @@ func applyZeroValueDefaults(config *Config) {
 		config.BufferSize = 64
 	}
 	// MaxTimeouts = 0 is valid and means no timeout limit, so we don't change it
+	// MaxMonitoredItemsPerRequest = 0 is valid and means no limit, so we don't change it
 }
 
 // AddNodeMapping adds a node mapping to the configuration with highest priority

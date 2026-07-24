@@ -31,6 +31,7 @@ Usage of opcua_exporter:
       --config string               Path to a file from which to read the list of OPC UA nodes to monitor
       --debug                       Enable debug logging
       --endpoint string             OPC UA Endpoint to connect to. (default "opc.tcp://localhost:4096")
+      --max-monitored-items-per-request int   Max nodes added to a subscription per request (0 = no limit, all nodes in one request)
       --max-timeouts int            The exporter will quit trying after this many read timeouts (0 to disable).
       --node stringArray            Node mapping in format 'nodeId,metricName[,extractBit]' (can be repeated)
       --password string             Password for username/password authentication
@@ -247,6 +248,7 @@ All configuration options can be set via environment variables with the `OPCUA_E
 | `OPCUA_EXPORTER_READ_TIMEOUT` | `--read-timeout` | Timeout for subscription messages | `5s` |
 | `OPCUA_EXPORTER_MAX_TIMEOUTS` | `--max-timeouts` | Max timeouts before quit | `0` (disabled) |
 | `OPCUA_EXPORTER_BUFFER_SIZE` | `--buffer-size` | Message receive buffer size | `64` |
+| `OPCUA_EXPORTER_MAX_MONITORED_ITEMS_PER_REQUEST` | `--max-monitored-items-per-request` | Max nodes added to a subscription per request (0 = no limit) | `0` |
 | `OPCUA_EXPORTER_SUMMARY_INTERVAL` | `--summary-interval` | Event count summary frequency | `5m` |
 | `OPCUA_EXPORTER_SUBSCRIBE_TO_TIME_NODE` | `--subscribe-to-time-node` | Subscribe to server time node | `false` |
 
@@ -294,6 +296,46 @@ For legacy compatibility, you can still use separate node config files:
 - nodeName: ns=1;s=CircuitBreakerStates
   extractBit: 3 # pull just this bit from a bit-vector channel
   metricName: circuit_breaker_three_tripped
+```
+
+## Subscribing to Large Numbers of Nodes
+
+The exporter subscribes to all configured nodes by sending a `CreateMonitoredItems` request to
+the OPC UA server. Many servers cap how many items can be created in a single request and
+respond with `StatusBadTooManyOperations` if that cap is exceeded - a limit of 100 items per
+request is common. If you configure more nodes than your server allows in one request, the
+exporter will fail to start with an error like:
+
+```
+error setting up monitor: failed to add monitored items: The request could not be processed
+because it specified too many operations. StatusBadTooManyOperations (0x80100000)
+```
+
+To work around this, set `maxMonitoredItemsPerRequest` to a value at or below your server's
+limit. The exporter will then add nodes to the subscription in batches of that size instead of
+all at once, issuing multiple `CreateMonitoredItems` requests as needed. This only affects how
+subscription setup is chunked - all nodes still end up monitored on the same subscription, and
+metrics are unaffected.
+
+The default is `0`, meaning no limit: all nodes are added in a single request. Only set this
+option if your server rejects large subscription requests.
+
+**Command Line:**
+
+```bash
+./opcua_exporter --config nodes.yaml --max-monitored-items-per-request 100
+```
+
+**Environment Variable:**
+
+```bash
+export OPCUA_EXPORTER_MAX_MONITORED_ITEMS_PER_REQUEST=100
+```
+
+**YAML Config:**
+
+```yaml
+maxMonitoredItemsPerRequest: 100
 ```
 
 ## Bit Vectors
