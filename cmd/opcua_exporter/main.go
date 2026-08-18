@@ -407,9 +407,14 @@ func main() {
 
 	app.server = createHTTPServer(cfg.Port)
 	log.Printf("Serving metrics on :%d", cfg.Port)
-	if err := app.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		app.shutdown(fmt.Errorf("HTTP server error: %w", err))
-	}
+	go func() {
+		if err := app.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			app.shutdown(fmt.Errorf("HTTP server error: %w", err))
+		}
+	}()
+
+	// Block forever, exit is handled via shutdown()
+	select {}
 }
 
 func getClient(endpoint *string) (*opcua.Client, error) {
