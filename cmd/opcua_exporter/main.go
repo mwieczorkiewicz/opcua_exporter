@@ -106,7 +106,13 @@ type App struct {
 
 // shutdown performs graceful shutdown of the application
 func (app *App) shutdown(err error) {
-	log.Printf("Shutting down: %v", err)
+	exitCode := 0
+	if err != nil {
+		log.Printf("Shutting down: %v", err)
+		exitCode = 1
+	} else {
+		log.Print("Shutting down: received interrupt signal")
+	}
 	if app.client != nil {
 		app.client.Close(app.ctx)
 	}
@@ -116,7 +122,7 @@ func (app *App) shutdown(err error) {
 		app.server.Shutdown(ctx)
 	}
 	app.cancel()
-	os.Exit(1)
+	os.Exit(exitCode)
 }
 
 func init() {
